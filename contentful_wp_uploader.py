@@ -5,15 +5,15 @@ from openai import OpenAI
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from rich_text_renderer import RichTextRenderer
-from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD
 
 renderer = RichTextRenderer()  # To render RTF input from contentful
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
 ENVIRONMENT = 'development'  # Not master
 auth = HTTPBasicAuth(USERNAME, PASSWORD)
 activity_url = "https://staging.brimming.app/brims/" # change to corresponding WP permalink
-site_url = "https://maesterlinks.wpcomstaging.com/"
+site_url = "https://maesterlinks.wpcomstaging.com/"  # change to final website link
 api_url = f"{site_url}wp-json/wp/v2/pages"
 
 try:
@@ -280,9 +280,12 @@ def update_slug(page_id, new_slug):
         print(response.json())
 def modify_suffixes(page):
     original_slug = page['slug']
-    if any(original_slug.endswith(f'-{i}') for i in range(2, 11)):
-        new_slug = original_slug.replace('-2', '')
-        update_slug(page['id'], new_slug)
+    for i in range(2, 11):
+        if original_slug.endswith(f'-{i}'):
+            new_slug = original_slug.replace(f'-{i}', '')
+            update_slug(page['id'], new_slug)
+            break  # Exit the loop once the slug is updated
+
 def parallel_modify_suffixes(pages):
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(modify_suffixes, page) for page in pages]
