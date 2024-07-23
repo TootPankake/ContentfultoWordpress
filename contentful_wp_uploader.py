@@ -23,8 +23,8 @@ try:
     print("Successfully connected to Contentful client.")
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
-    
-def generate_article_links(article, data):
+
+def generate_article_links(title, article, data):
     html_output = renderer.render(article)
     prompt = f"""
     [ARTICLE START]
@@ -47,6 +47,7 @@ def generate_article_links(article, data):
     content = response.choices[0].message.content
     content = content.replace('[ARTICLE START]\n', '').replace('\n[ARTICLE END]', '')
     content = content.replace('```html\n', '').replace('\n```', '')
+    print(f"Article link completed: {title}")
     return content
 
 all_entries = []
@@ -101,7 +102,7 @@ def process_article(article):
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
 
-    ai_updated_article = generate_article_links(content, json_slug_data)  # Add hyperlinks to the article
+    ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     
     return {
         'title': title,
