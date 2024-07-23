@@ -130,10 +130,6 @@ def remove_article_end(content): # clean json content
     return content.replace("[ARTICLE END]", "")
 for article in processed_articles:
     article["content"] = remove_article_end(article["content"])
-output_file_path = "/Users/emregumus/Downloads/cleaned_processed_articles.json"
-with open(output_file_path, 'w') as output_file:
-    json.dump(processed_articles, output_file, indent=4)
-print(f"Cleaned file saved to: {output_file_path}")
 
 
 activity_types = {item['activity'] for item in processed_articles}
