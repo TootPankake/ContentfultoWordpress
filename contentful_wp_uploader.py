@@ -1,4 +1,3 @@
-import sys
 import json
 import requests
 import contentful
@@ -6,7 +5,7 @@ import certifi
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from openai import OpenAI
-from datetime import datetime
+from datetime import datetime, timedelta
 from requests.auth import HTTPBasicAuth
 from rich_text_renderer import RichTextRenderer
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,7 +13,7 @@ from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD,
 
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
 model = "gpt-4o"
-ENVIRONMENT = 'development'  # Not master
+environment = 'development'  # Not master
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB["brimming-test"]
 collection = db["contentfulAccessDates"]
@@ -28,8 +27,8 @@ refreshArticles = input("Do you also need to refresh all articles? (y/n): ").str
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
-                               environment=ENVIRONMENT,
-                               max_include_resolution_depth=2)
+                               environment=environment,
+                               max_include_resolution_depth=1)
     renderer = RichTextRenderer()  # To render RTF input from contentful
     print("Successfully connected to Contentful client.")
 except contentful.errors.NotFoundError as e:
@@ -118,7 +117,7 @@ def fetch_all_parent_pages():
     while True:
         response = requests.get(api_url, params={'per_page': 100, 'page': page, 'parent': 0}, auth=auth)
         if response.status_code != 200:
-            print(f"Failed to fetch pages. Status code: {response.status_code}")
+            #print(f"Failed to fetch pages. Status code: {response.status_code}")
             break
         batch = response.json()
         if not batch:
@@ -257,23 +256,21 @@ if refreshArticles == 'Y':
     date_threshold = datetime(2024, 1, 1).isoformat()
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
 else: 
-    today = {"name": datetime.now(), "created_at": datetime.now()}
-    collection.insert_one(today)
     dates = list(collection.find().sort('created_at', -1))
     dates_to_delete = dates[1:] # deletes all dates but the last one
     ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
     collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
-    recent_posts = collection.find().sort("timestamp", -1).limit(10) # Fetch the most recent posts (assuming you have a 'timestamp' field)
-    
+    recent_posts = collection.find().sort("timestamp", -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
+    today = {"name": datetime.now(), "created_at": datetime.now()}
+    collection.insert_one(today)
     for post in recent_posts:
+        print(post)
         formattedTime = post['created_at']
-        formatted_date = formattedTime.strftime('%Y-%m-%d %H:%M:%S.%f')
+        adjusted_time = formattedTime - timedelta(minutes=1) # gives some leeway on last db date request
+        formatted_date = adjusted_time.strftime('%Y-%m-%d %H:%M:%S.%f')
     date_threshold = formatted_date
     date_threshold_articles = formatted_date
-    
     clientDB.close()
-
-
 
 while True:  # Fetch activities with pagination parameters
     entries = client.entries({
@@ -302,10 +299,8 @@ while True:  # Fetch articles with pagination parameters
 
 for entry in all_entries:
     slug = entry.fields().get('slug')  # isolating slug
-    title = entry.fields().get('title')
     slugs.append(slug)
 json_slug_data = json.dumps(slugs)
-json_title_data = json.dumps(titles)
 print("Collected all contentful data")
 
 print(f"Compiling {model} prompts")
@@ -321,14 +316,24 @@ with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt
 
         except Exception as exc:
             print(f"Exception occurred while processing article: {exc}")
-            
+                   
 for article in processed_articles:
     article["content"] = article["content"].replace("[ARTICLE END]", "")
     
 activity_types = {item['activity'] for item in processed_articles}
 parent_pages = {}
+body = ''
 for activity in sorted(activity_types):
-    page_id = create_parent_page(activity, existing_parent_pages,"")
+    for entry2 in all_entries:
+        title = entry2.fields().get('title')
+        content = entry2.fields().get('description_full')
+        if content and addActivities == 'Y':
+            if title == activity:
+                body = renderer.render(content)
+                break
+        else:
+            body = ""
+    page_id = create_parent_page_body(activity, existing_parent_pages, body)
     if page_id:
         parent_pages[activity] = page_id
     else:
@@ -387,9 +392,3 @@ with ThreadPoolExecutor(max_workers=10) as executor:
 parallel_modify_suffixes(pages)
 print("All page slugs have been processed.")
 
-ask = input("end function")
-for entry2 in all_entries:
-    content = entry2.fields().get('description_full')
-    if content and addActivities == 'Y':
-        content = renderer.render(content)
-        parent_page_id = create_parent_page_body(title, existing_parent_pages, content)
