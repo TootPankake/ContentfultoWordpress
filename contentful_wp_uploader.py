@@ -22,8 +22,8 @@ site_url = "https://maesterlinks.wpcomstaging.com/"  # change to final website l
 api_url = f"{site_url}wp-json/wp/v2/pages"
 #delete_all_pages()
 
-addActivities = input("Do you need to refresh the activities? (y/n): ").strip().upper()
-refreshArticles = input("Do you also need to refresh all articles? (y/n): ").strip().upper()
+addActivities = input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
+refreshArticles = input("Do you need to refresh EVERY articles? (y/n): ").strip().upper()
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
