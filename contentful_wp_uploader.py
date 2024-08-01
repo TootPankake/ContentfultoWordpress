@@ -1,29 +1,39 @@
+import sys
 import json
 import requests
-import contentful
 import certifi
-from pymongo.mongo_client import MongoClient
-from pymongo.server_api import ServerApi
+import contentful
 from openai import OpenAI
-from datetime import datetime, timedelta
 from requests.auth import HTTPBasicAuth
+from datetime import datetime, timedelta
+from pymongo.server_api import ServerApi
+from pymongo.mongo_client import MongoClient
 from rich_text_renderer import RichTextRenderer
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD, URI
 
+### TODO
+# fetch contentful entry ID as title
+# make Y then N work by using not gpt article processing to amass slugs
+# add barriers (eventually) to bottom of activity page, for now just link to other articles about darts example
+# array of types activity barrier navigator, + more added in the future
+# makefile or input to do clean sweep or only recent articles, maybe add api tokens as parameters to aws function
+# pivot to page ID's instead of title for updating, update contentful too, maybe a separate system
+
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
 model = "gpt-4o"
-environment = 'development'  # Not master
+environment = 'development' # Not master
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB["brimming-test"]
 collection = db["contentfulAccessDates"]
 auth = HTTPBasicAuth(USERNAME, PASSWORD)
 site_url = "https://maesterlinks.wpcomstaging.com/"  # change to final website link
 api_url = f"{site_url}wp-json/wp/v2/pages"
+
 #delete_all_pages()
 
 addActivities = input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
-refreshArticles = input("Do you need to refresh EVERY articles? (y/n): ").strip().upper()
+refreshArticles = input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
@@ -74,8 +84,8 @@ def process_article(article):
     
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
-    #ai_updated_article = content
-    ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
+    ai_updated_article = content
+    #ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     
     return {
         'title': title,
@@ -111,6 +121,32 @@ def fetch_all_pages():
         page += 1
     return pages
 
+def fetch_all_page_titles():
+    titles = []
+    page_number = 1
+    while True:
+        response = requests.get(api_url, params={'per_page': 100, 'page': page_number}, auth=auth)
+        if response.status_code != 200:
+            print(f"Failed to fetch pages. Status code: {response.status_code}")
+            break
+        batch = response.json()
+        if not batch:
+            break
+        for page in batch:
+            title = page['title']['rendered']
+            page_id = page['id']
+            # Replace HTML entity with a regular tokens
+            title = title.replace('&#8221;', '"')
+            title = title.replace('&#8220;', '"')
+            title = title.replace('&#8217;', "'")  
+            title = title.replace('&#8211;', "-")  
+            title = title.replace('&#038;', '&')
+            title = title.strip()
+
+            titles.append((page_id, title))
+        page_number += 1
+    return titles
+
 def fetch_all_parent_pages():
     pages = []
     page = 1
@@ -125,32 +161,6 @@ def fetch_all_parent_pages():
         pages.extend(batch)
         page += 1
     return pages
-
-def create_parent_page(tag, existing_parent_pages, body):
-    # Check if the parent page (activity) exists in the existing pages list
-    for page in existing_parent_pages:
-        if page['title']['rendered'].lower() == tag.lower():
-            print(f"Existing page found for tag '{tag}': {page['id']}")  # Debug print to confirm existing page usage
-            return page['id']
-    
-    # Create parent page if it doesn't exist
-    parent_data = {
-        'title': tag,
-        'content': {
-            'rendered': body
-        },
-        'status': 'publish'
-    }
-    response = requests.post(api_url, json=parent_data, auth=auth)
-    if response.status_code in [200, 201]:
-        new_page_id = response.json()['id']
-        print(f"Created new parent page for tag '{tag}' with ID: {new_page_id}")  # Debug print for new page creation
-        existing_parent_pages.append(response.json())  # Add the newly created page to the list
-        return new_page_id
-    else:
-        print(f"Failed to create parent page '{tag}'. Status code: {response.status_code}")
-        print(response.json())
-        return None
     
 def create_parent_page_body(tag, existing_parent_pages, body):
     # Check if the parent page (activity) exists in the existing pages list
@@ -194,17 +204,34 @@ def create_parent_page_body(tag, existing_parent_pages, body):
         return None
 
 def create_child_page(article, parent_id):
-    child_data = {
-        'title': article['title'],
+    article_title = article['title'].strip()
+    for page_id, title in existing_pages: # Check if the title matches any existing page title
+        if title == article_title: ### CHANGE TO PAGE ID!!!
+            update_data = {
+                'title': article_title,
+                'content': article['content'],
+                'status': 'publish',
+                'parent': parent_id
+            }
+            response = requests.post(f"{api_url}/{page_id}", json=update_data, auth=auth)
+            if response.status_code == 200:
+                print(f"Article '{article_title}' updated successfully with ID: {page_id}")
+            else:
+                print(f"Failed to update article '{article_title}'. Status code: {response.status_code}")
+                print(response.json())
+            return
+    
+    child_data = { # If no matching title is found, create a new page
+        'title': article_title,
         'content': article['content'],
         'status': 'publish',
         'parent': parent_id
     }
-    response = requests.post(f"{api_url}", json=child_data, auth=auth)
+    response = requests.post(api_url, json=child_data, auth=auth)
     if response.status_code in [200, 201]:
-        print(f"Article '{article['title']}' added successfully under parent ID: {parent_id}")
+        print(f"Article '{article_title}' added successfully under parent ID: {parent_id}")
     else:
-        print(f"Failed to add article '{article['title']}'. Status code: {response.status_code}")
+        print(f"Failed to add article '{article_title}'. Status code: {response.status_code}")
         print(response.json())
         
 def delete_page(page_id):
@@ -251,6 +278,7 @@ skip2 = 0
 iteration = 0
 limit = 100  # Max limit per request
 existing_parent_pages = fetch_all_parent_pages()
+existing_pages = fetch_all_page_titles()
 
 if refreshArticles == 'Y':
     date_threshold = datetime(2024, 1, 1).isoformat()
@@ -264,7 +292,6 @@ else:
     today = {"name": datetime.now(), "created_at": datetime.now()}
     collection.insert_one(today)
     for post in recent_posts:
-        print(post)
         formattedTime = post['created_at']
         adjusted_time = formattedTime - timedelta(minutes=1) # gives some leeway on last db date request
         formatted_date = adjusted_time.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -317,8 +344,8 @@ with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt
         except Exception as exc:
             print(f"Exception occurred while processing article: {exc}")
                    
-for article in processed_articles:
-    article["content"] = article["content"].replace("[ARTICLE END]", "")
+#for article in processed_articles:
+#    article["content"] = article["content"].replace("[ARTICLE END]", "")
     
 activity_types = {item['activity'] for item in processed_articles}
 parent_pages = {}
@@ -340,7 +367,7 @@ for activity in sorted(activity_types):
         print(f"Page '{activity}' could not be created.")
 
 # Create "Other" parent page
-other_page_id = create_parent_page("Other", existing_parent_pages,"")
+other_page_id = create_parent_page_body("Other", existing_parent_pages,"")
 if other_page_id:
     print(f"'Other' page is available with ID: {other_page_id}")
 else:
@@ -350,45 +377,9 @@ else:
 for article in processed_articles:
     if article["has_activities_and_barriers"]:
         activity = article["activity"]
-        parent_id = parent_pages.get(activity, other_page_id)     
+        parent_id = parent_pages.get(activity, other_page_id)
         create_child_page(article, parent_id)
     else:
         create_child_page(article, other_page_id) # for articles with no category
+
 print("All articles have been processed successfully.")
-
-
-def delete_page(page_id):
-    response = requests.delete(f"{api_url}/{page_id}", auth=auth)
-    if response.status_code == 200:
-        print(f"Successfully deleted page ID: {page_id}")
-    else:
-        print(f"Failed to delete page ID: {page_id}. Status code: {response.status_code}")
-pages = fetch_all_pages()
-title_dict = {}
-duplicates = []
-
-# Organize pages by title and keep the most recent one
-for page in pages:
-    title = page['title']['rendered']
-    created_at = page['date']
-    if title in title_dict:
-        # Compare dates to keep the most recent one
-        if created_at > title_dict[title]['date']:
-            duplicates.append(title_dict[title]['id'])
-            title_dict[title] = {'id': page['id'], 'date': created_at}
-        else:
-            duplicates.append(page['id'])
-    else:
-        title_dict[title] = {'id': page['id'], 'date': created_at}
-with ThreadPoolExecutor(max_workers=10) as executor:
-    futures = {executor.submit(delete_page, page_id): page_id for page_id in duplicates}
-    for future in as_completed(futures):
-        try:
-            future.result()
-        except Exception as exc:
-            print(f"Exception occurred while deleting page: {exc}")
-
-# Modify the suffixes of all pages using the above three functions
-parallel_modify_suffixes(pages)
-print("All page slugs have been processed.")
-
