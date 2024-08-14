@@ -22,8 +22,8 @@ auth = HTTPBasicAuth(USERNAME, PASSWORD)
 api_url = f"{URL}wp-json/wp/v2/pages"
 meta_url = f"{api_url}/{{page_id}}" 
 
-addActivities = input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
-refreshArticles = input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
+addActivities = 'Y'#input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
+refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
@@ -76,8 +76,8 @@ def process_article(entry):
     
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
-    ai_updated_article = content
-    #ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
+    #ai_updated_article = content
+    ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     
     return {
         'title': title,
@@ -245,6 +245,7 @@ def create_child_page_concurrently(article):
         parent_id = other_page_id
 
     create_child_page(article, parent_id)   
+
 skip1 = 0
 skip2 = 0
 iteration = 0
@@ -258,12 +259,6 @@ existing_metadata = []
 existing_pages = fetch_all_pages_concurrently()
 fetch_metadata_id_concurrently(existing_pages)
 
-'''with open('metadata.json', 'w') as json_file:
-    json.dump(existing_metadata, json_file, indent=4)
-
-with open('pages.json', 'w') as json_file:
-    json.dump(existing_pages, json_file, indent=4)
-sys.exit()'''
 if refreshArticles == 'Y':
     date_threshold = datetime(2024, 1, 1).isoformat()
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
@@ -369,28 +364,41 @@ with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt
         except Exception as exc:
             print(f"Exception occurred while processing article: {exc}")
 
-#for article in processed_articles:
-#    article["content"] = article["content"].replace("[ARTICLE END]", "")        
+for article in processed_articles:
+    article["content"] = article["content"].replace("[ARTICLE END]", "")        
+
 activity_types = {item['activity'] for item in processed_articles}    
 parent_pages = {}
 parent_page_ids = {}
 body = ""
-ids = []
 for activity in sorted(activity_types):
-    for entry2 in all_activities:
-        title = entry2.fields().get('title')
-        content = entry2.fields().get('description_full')
-        id = entry2.sys.get('id')
+    for entry in all_activities:
+        title = entry.fields().get('title')
+        content = entry.fields().get('description_full')
+        id = entry.sys.get('id')
+
         if addActivities == 'Y' and title == activity:
+            barriers = entry.fields().get('barriers', [])
+            barriers_list = [barrier.fields().get('title') for barrier in barriers]
+
             if content:
+                content = renderer.render(content)
+                content += "\nBarriers: \n"
+                for i in barriers_list:
+                    content += i
+                    content += "\n"
                 parent_page_id = create_parent_page(activity, content, id)
                 parent_page_ids[activity] = parent_page_id
-            if  not content:
-                parent_page_id = create_parent_page(activity, "", id)
+                
+            if not content:
+                content = "\nBarriers: \n"
+                for i in barriers_list:
+                    content += i
+                    content += "\n"
+                parent_page_id = create_parent_page(activity, content, id)
                 parent_page_ids[activity] = parent_page_id
 
 other_page_id = create_parent_page("Other","","0451")
-
 with ThreadPoolExecutor(max_workers=10) as executor:
     futures = {executor.submit(create_child_page_concurrently, article): article for article in processed_articles}
 
@@ -401,4 +409,4 @@ with ThreadPoolExecutor(max_workers=10) as executor:
         except Exception as exc:
             print(f"Exception occurred while processing article '{article['title']}': {exc}")
         
-print("All articles have been processed successfully.")
+print("\nAll articles have been processed successfully.")

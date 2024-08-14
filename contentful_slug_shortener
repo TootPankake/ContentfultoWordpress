@@ -1,0 +1,78 @@
+import requests
+import contentful
+from openai import OpenAI
+from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN
+
+# Set up your API keys
+contentful_space_id = SPACE_ID
+contentful_access_token = ACCESS_TOKEN
+contentful_management_token = MANAGEMENT_TOKEN
+openai_api_key = OPENAI_API_TOKEN
+
+try:
+    client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  
+                               environment='development',
+                               max_include_resolution_depth=1)
+    print("Successfully connected to Contentful client.")
+except contentful.errors.NotFoundError as e:
+    print(f"Error: {e}")
+clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
+
+# Fetch the most recent article from Contentful
+entries = []
+articles = client.entries({
+    'content_type': "article",
+    'order': '-sys.createdAt',  # Order by creation date descending
+    'limit': 1,  # Fetch only the most recent entry
+})
+entries.extend(articles)
+
+def shorten_slug(slug):
+    response = clientAI.chat.completions.create(
+        model='gpt-4o-mini',
+        temperature=0.1,
+        messages=[
+            {"role": "system", "content": "Assistant, providing assistance with text processing and link insertion as requested."},
+            {"role": "user", "content": f"Shorten the following slug: {slug}, only output the updated slug, nothing else."}
+        ]
+    )
+    shortened_slug = response.choices[0].message.content
+    return shortened_slug
+
+# Update the most recent entry's slug
+for entry in entries:
+    slug = entry.fields().get('slug')
+    if slug:
+        shortened_slug = shorten_slug(slug)
+        entry_id = entry.sys['id']
+        print(f"Original slug: {slug}, Shortened slug: {shortened_slug}")
+
+        # Fetch the full entry details to avoid wiping other fields
+        entry_details_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
+        entry_details_headers = {
+            'Authorization': f'Bearer {contentful_management_token}',
+        }
+
+        entry_details_response = requests.get(entry_details_url, headers=entry_details_headers)
+        entry_details = entry_details_response.json()
+
+        version = entry_details['sys']['version']
+
+        # Update only the slug field, keeping other fields unchanged
+        entry_details['fields']['slug']['en-US'] = shortened_slug
+
+        # Send the full entry data with only the slug modified
+        update_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
+        update_headers = {
+            'Authorization': f'Bearer {contentful_management_token}',
+            'Content-Type': 'application/vnd.contentful.management.v1+json',
+            'X-Contentful-Version': str(version)
+        }
+
+        update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+        if update_response.status_code == 200:
+            print(f"Successfully updated slug for entry ID {entry_id}")
+        else:
+            print(f"Failed to update slug for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")
+    else:
+        print("Slug not found for the entry.")
