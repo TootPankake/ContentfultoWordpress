@@ -20,11 +20,10 @@ db = clientDB["brimming-test"]
 collection = db["contentfulAccessDates"]
 auth = HTTPBasicAuth(USERNAME, PASSWORD)
 api_url = f"{URL}wp-json/wp/v2/pages"
-meta_url = f"{api_url}/{{page_id}}"
+meta_url = f"{api_url}/{{page_id}}" 
 
-
-addActivities = 'Y' #input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
-refreshArticles = 'Y' #input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
+addActivities = input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
+refreshArticles = input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
@@ -237,7 +236,15 @@ def create_child_page(article, parent_id):
     else:
         print(f'Failed to create page: {response.status_code}')
         #print(response.json())  # Print the response for debugging
-    
+ 
+def create_child_page_concurrently(article):
+    if article["has_activities_and_barriers"]:
+        activity = article["activity"]
+        parent_id = parent_page_ids.get(activity, other_page_id)  # Get the parent page ID
+    else:
+        parent_id = other_page_id
+
+    create_child_page(article, parent_id)   
 skip1 = 0
 skip2 = 0
 iteration = 0
@@ -251,6 +258,12 @@ existing_metadata = []
 existing_pages = fetch_all_pages_concurrently()
 fetch_metadata_id_concurrently(existing_pages)
 
+'''with open('metadata.json', 'w') as json_file:
+    json.dump(existing_metadata, json_file, indent=4)
+
+with open('pages.json', 'w') as json_file:
+    json.dump(existing_pages, json_file, indent=4)
+sys.exit()'''
 if refreshArticles == 'Y':
     date_threshold = datetime(2024, 1, 1).isoformat()
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
@@ -320,6 +333,7 @@ for entry in all_activities:
     title = entry.fields().get('title')
     description = entry.fields().get('description_full')
     activity_id = entry.sys.get('id')
+
     if description:
         try:
             rendered_description = renderer.render(description)
@@ -357,36 +371,34 @@ with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt
 
 #for article in processed_articles:
 #    article["content"] = article["content"].replace("[ARTICLE END]", "")        
-
-activity_types = {item['activity'] for item in processed_articles}
+activity_types = {item['activity'] for item in processed_articles}    
 parent_pages = {}
 parent_page_ids = {}
 body = ""
+ids = []
 for activity in sorted(activity_types):
     for entry2 in all_activities:
         title = entry2.fields().get('title')
         content = entry2.fields().get('description_full')
         id = entry2.sys.get('id')
-        if content and addActivities == 'Y':
-            if title == activity:
-                body = renderer.render(content)
-                break
-            else:
-                body = ""
-    parent_page_id = create_parent_page(activity, body, id)
-    if parent_page_id:
-        parent_page_ids[activity] = parent_page_id
-        
+        if addActivities == 'Y' and title == activity:
+            if content:
+                parent_page_id = create_parent_page(activity, content, id)
+                parent_page_ids[activity] = parent_page_id
+            if  not content:
+                parent_page_id = create_parent_page(activity, "", id)
+                parent_page_ids[activity] = parent_page_id
+
 other_page_id = create_parent_page("Other","","0451")
 
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = {executor.submit(create_child_page_concurrently, article): article for article in processed_articles}
 
-# Add articles as child pages
-for article in processed_articles:
-    if article["has_activities_and_barriers"]:
-        activity = article["activity"]
-        parent_id = parent_page_ids.get(activity, other_page_id)  # Get the parent page ID
-        create_child_page(article, parent_id)
-    else:
-        create_child_page(article, other_page_id)
+    for future in as_completed(futures):
+        article = futures[future]
+        try:
+            future.result()  # Retrieve the result to trigger any exceptions
+        except Exception as exc:
+            print(f"Exception occurred while processing article '{article['title']}': {exc}")
         
 print("All articles have been processed successfully.")
