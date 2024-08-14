@@ -179,7 +179,8 @@ def create_parent_page(activityTitle, activityDescription, entryID):
 
 def create_child_page(article, parent_id):
     articleTitle = article['title']
-    articleDescription = renderer.render(article['content'])
+    articleDescription = article['content']
+    #articleDescription = renderer.render(article['content'])
     entryID = article['id']
     
     if not articleDescription:
@@ -307,7 +308,6 @@ for entry in all_articles:
     title = entry.fields().get('title')
     description = entry.fields().get('content')
     article_id = entry.sys.get('id')
-    slugs.append(slug)
     if description:
         try:
             rendered_description = renderer.render(description)
@@ -328,7 +328,7 @@ for entry in all_activities:
     title = entry.fields().get('title')
     description = entry.fields().get('description_full')
     activity_id = entry.sys.get('id')
-
+    slugs.append(slug)
     if description:
         try:
             rendered_description = renderer.render(description)
@@ -399,6 +399,7 @@ for activity in sorted(activity_types):
                 parent_page_ids[activity] = parent_page_id
 
 other_page_id = create_parent_page("Other","","0451")
+
 with ThreadPoolExecutor(max_workers=10) as executor:
     futures = {executor.submit(create_child_page_concurrently, article): article for article in processed_articles}
 
