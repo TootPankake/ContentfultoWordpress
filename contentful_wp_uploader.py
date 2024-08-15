@@ -25,6 +25,23 @@ meta_url = f"{api_url}/{{page_id}}"
 addActivities = 'Y'#input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
 refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
 
+if refreshArticles == 'Y':
+    date_threshold_articles = datetime(2023, 1, 1).isoformat()
+else: 
+    dates = list(collection.find().sort('created_at', -1))
+    dates_to_delete = dates[1:] # deletes all dates but the last one
+    ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
+    collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
+    recent_posts = collection.find().sort("timestamp", -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
+    today = {"name": datetime.now(), "created_at": datetime.now()}
+    collection.insert_one(today)
+    for post in recent_posts:
+        formattedTime = post['created_at']
+        adjusted_time = formattedTime - timedelta(minutes=1) # gives some leeway on last db date request
+        formatted_date = adjusted_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+    date_threshold_articles = formatted_date
+    clientDB.close()
+    
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
                                environment=environment,
@@ -259,25 +276,6 @@ slugs = []
 existing_metadata = []
 existing_pages = fetch_all_pages_concurrently()
 fetch_metadata_id_concurrently(existing_pages)
-
-if refreshArticles == 'Y':
-    date_threshold = datetime(2024, 1, 1).isoformat()
-    date_threshold_articles = datetime(2023, 1, 1).isoformat()
-else: 
-    dates = list(collection.find().sort('created_at', -1))
-    dates_to_delete = dates[1:] # deletes all dates but the last one
-    ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
-    collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
-    recent_posts = collection.find().sort("timestamp", -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
-    today = {"name": datetime.now(), "created_at": datetime.now()}
-    collection.insert_one(today)
-    for post in recent_posts:
-        formattedTime = post['created_at']
-        adjusted_time = formattedTime - timedelta(minutes=1) # gives some leeway on last db date request
-        formatted_date = adjusted_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-    #date_threshold = formatted_date
-    date_threshold_articles = formatted_date
-    clientDB.close()
 
 while True:  # Fetch activities with pagination parameters
     activities = client.entries({

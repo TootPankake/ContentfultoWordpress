@@ -16,6 +16,7 @@ try:
     print("Successfully connected to Contentful client.")
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
+
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
 
 # Fetch the most recent article from Contentful
@@ -27,27 +28,44 @@ articles = client.entries({
 })
 entries.extend(articles)
 
-def shorten_slug(slug):
+def shorten_title(title, barrier): 
+    title = title.replace(":", "")     
+    prompt = f"""Shorten the following title: \"{title}\" using its corresponding barrier as its theme: \"{barrier}\".
+Updated title must be 50 to 60 characters optimized for SEO, no colon allowed, only output the updated title, nothing else.\n""" 
+    if title == "<title>" and barrier == "<barrier>":
+        with open("PromptTitleTesting.md", 'a') as file:
+            file.write("\nPrompt:\n" + prompt + "\nResults: \n")
+        print("Prompt:\n" + prompt + "\nResults: ")
+        return
     response = clientAI.chat.completions.create(
         model='gpt-4o-mini',
         temperature=0.1,
         messages=[
             {"role": "system", "content": "Assistant, providing assistance with text processing and link insertion as requested."},
-            {"role": "user", "content": f"Shorten the following slug: {slug}, only output the updated slug, nothing else."}
+            {"role": "user", "content": prompt}
         ]
     )
-    shortened_slug = response.choices[0].message.content
-    return shortened_slug
+    shortened_title = response.choices[0].message.content
+    return shortened_title
 
-# Update the most recent entry's slug
+shorten_title("<title>","<barrier>") # show what the prompt is for comparison
 for entry in entries:
-    slug = entry.fields().get('slug')
-    if slug:
-        shortened_slug = shorten_slug(slug)
+    title = entry.fields().get('title')
+    barriers = entry.fields().get('barriers', [])
+    barriers_list = [barrier.fields().get('title') for barrier in barriers]
+    barrier = barriers_list[0] if barriers_list else ''
+    
+    if title:
+        shortened_title = shorten_title(title, barrier)
         entry_id = entry.sys['id']
-        print(f"Original slug: {slug}, Shortened slug: {shortened_slug}")
-
-        # Fetch the full entry details to avoid wiping other fields
+        print(f"""{title} 
+{shortened_title}\n""")
+        with open("PromptTitleTesting.md", 'a') as file:
+            file.write(f"""{title} 
+{shortened_title}
+\n""")
+            
+         # Fetch the full entry details to avoid wiping other fields
         entry_details_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
         entry_details_headers = {
             'Authorization': f'Bearer {contentful_management_token}',
@@ -59,9 +77,9 @@ for entry in entries:
         version = entry_details['sys']['version']
 
         # Update only the slug field, keeping other fields unchanged
-        entry_details['fields']['slug']['en-US'] = shortened_slug
+        entry_details['fields']['title']['en-US'] = shortened_title
 
-        # Send the full entry data with only the slug modified
+        # Send the full entry data with only the title modified
         update_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
         update_headers = {
             'Authorization': f'Bearer {contentful_management_token}',
@@ -69,10 +87,10 @@ for entry in entries:
             'X-Contentful-Version': str(version)
         }
 
-        update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+        '''update_response = requests.put(update_url, headers=update_headers, json=entry_details)
         if update_response.status_code == 200:
-            print(f"Successfully updated slug for entry ID {entry_id}")
+            print(f"Successfully updated title for entry ID {entry_id}")
         else:
-            print(f"Failed to update slug for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")
+            print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")'''
     else:
-        print("Slug not found for the entry.")
+        print("Title not found for the entry.")
