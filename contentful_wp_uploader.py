@@ -22,8 +22,8 @@ auth = HTTPBasicAuth(USERNAME, PASSWORD)
 api_url = f"{URL}wp-json/wp/v2/pages"
 meta_url = f"{api_url}/{{page_id}}" 
 
-addActivities = 'Y'#input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
-refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
+addActivities = input("Do you need to refresh the activity descriptions? (y/n): ").strip().upper()
+refreshArticles = input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
 
 if refreshArticles == 'Y':
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
