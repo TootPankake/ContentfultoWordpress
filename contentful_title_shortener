@@ -20,11 +20,12 @@ except contentful.errors.NotFoundError as e:
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
 
 # Fetch the most recent article from Contentful
+temperature = 0.5
 entries = []
 articles = client.entries({
     'content_type': "article",
     'order': '-sys.createdAt',  # Order by creation date descending
-    'limit': 1,  # Fetch only the most recent entry
+    'limit': 20,  # Fetch only the most recent entry
 })
 entries.extend(articles)
 
@@ -34,12 +35,12 @@ def shorten_title(title, barrier):
 Updated title must be 50 to 60 characters optimized for SEO, no colon allowed, only output the updated title, nothing else.\n""" 
     if title == "<title>" and barrier == "<barrier>":
         with open("PromptTitleTesting.md", 'a') as file:
-            file.write("\nPrompt:\n" + prompt + "\nResults: \n")
+            file.write("\nPrompt: (temperature - " + str(temperature) + ")\n" + prompt + "\nResults: \n")
         print("Prompt:\n" + prompt + "\nResults: ")
         return
     response = clientAI.chat.completions.create(
         model='gpt-4o-mini',
-        temperature=0.1,
+        temperature=temperature,
         messages=[
             {"role": "system", "content": "Assistant, providing assistance with text processing and link insertion as requested."},
             {"role": "user", "content": prompt}

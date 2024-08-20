@@ -93,7 +93,6 @@ def process_article(entry):
     
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
-    #ai_updated_article = content
     ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     
     return {
@@ -197,7 +196,6 @@ def create_parent_page(activityTitle, activityDescription, entryID):
 def create_child_page(article, parent_id):
     articleTitle = article['title']
     articleDescription = article['content']
-    #articleDescription = renderer.render(article['content'])
     entryID = article['id']
     
     if not articleDescription:
