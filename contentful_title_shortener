@@ -3,6 +3,9 @@ import contentful
 from openai import OpenAI
 from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN
 
+# slugs match titles or keywords (short title) combining slug of activity and barrier
+
+
 # Set up your API keys
 contentful_space_id = SPACE_ID
 contentful_access_token = ACCESS_TOKEN
@@ -18,7 +21,8 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
 
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
-
+moreQueries = input("Do you want the option to doublecheck the results?").strip().upper()
+retry = 'N'
 # Fetch the most recent article from Contentful
 temperature = 0.9
 model = 'gpt-4o-mini'
@@ -26,8 +30,8 @@ entries = []
 articles = client.entries({
     'content_type': "article",
     'order': '-sys.createdAt',  # Order by creation date descending
-    'skip': 0, # skip the an arbitrary amount of entries first
-    'limit': 1,  # Fetch only the most recent entry
+    'skip': 80, # skip the an arbitrary amount of entries first
+    'limit': 20,  # Fetch only the most recent entry
 })
 entries.extend(articles)
 
@@ -66,7 +70,8 @@ for entry in entries:
         shortened_title = shorten_title(title, barrier)
         entry_id = entry.sys['id']
         print(f"""{title} --> \n{shortened_title}""")
-        retry = input("Adjust (y) or Continue (n): ").strip().upper()
+        if moreQueries == 'Y':
+            retry = input("Adjust (y) or Continue (n): ").strip().upper()
         print("")
         if retry == 'Y':
             list = []
@@ -107,7 +112,7 @@ for entry in entries:
             'X-Contentful-Version': str(version)
         }
 
-        update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+        '''update_response = requests.put(update_url, headers=update_headers, json=entry_details)
         if update_response.status_code == 200:
             print(f"Successfully updated title for entry ID {entry_id}")
             
@@ -124,6 +129,6 @@ for entry in entries:
             else:
                 print(f"Failed to publish entry ID {entry_id}: {publish_response.status_code}, {publish_response.text}")
         else:
-            print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")
+            print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")'''
     else:
         print("Title not found for the entry.")
