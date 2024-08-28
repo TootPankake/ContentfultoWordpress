@@ -39,7 +39,6 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
   
 refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
-
 if refreshArticles == 'Y':
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
 else: 
@@ -124,23 +123,6 @@ def fetch_all_pages_concurrently():
 
     return pages
 
-def fetch_all_categories_concurrently():
-    categories = []
-    page = 1
-    limit = 100
-
-    def fetch_category_page(page_number):
-        response = requests.get(f"{URL}/wp-json/wp/v2/categories", params={'per_page': limit, 'page': page_number}, auth=auth, timeout=10)
-        return response.json() if response.status_code == 200 else []
-
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        # Assuming there are not more than 10 pages of categories; adjust as needed
-        futures = [executor.submit(fetch_category_page, i) for i in range(1, 11)]
-        for future in as_completed(futures):
-            categories.extend(future.result())
-
-    return categories
-
 def fetch_metadata_id_concurrently(existing_pages):
     def fetch_metadata(page):
         page_id = page['id']
@@ -160,70 +142,40 @@ def fetch_metadata_id_concurrently(existing_pages):
             if result:
                 existing_metadata.append(result)
 
-def fetch_category_metadata_concurrently(existing_categories):
-    def fetch_metadata(category):
-        category_id = category['id']
-        meta_url = f'{URL}/wp-json/wp/v2/categories/{category_id}'
-        meta_response = requests.get(meta_url, auth=auth, timeout=10)
-        if meta_response.status_code == 200:
-            meta_data = meta_response.json().get('meta', {})
-            metadata_id = meta_data.get('_metadata_id', None)
-            if metadata_id:
-                return {'id': category_id, 'metadata_id': metadata_id}
-        return None
+def fetch_category_metadata_id():
+    response = requests.get(f"{URL}/wp-json/wp/v2/categories", auth=auth)
+    categories = response.json()
+    for category in categories:
+        existing_category_metadata.append(category.get('metadata_id'))
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_metadata, category) for category in existing_categories]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                existing_metadata_categories.append(result)    
-
-def create_category(title, slug, description, entryID):
-    # Check if the category already exists by title
-    category_id = None
-    for cat in existing_categories:
-        if cat['name'] == title:
-            category_id = cat['id']
-            print(f"Category '{title}' already exists with ID {category_id}. Using existing category.")
-            break
-
-    if category_id:
-        # If category exists, update its description (if needed)
-        category_data = {
-            'description': description
-        }
-
-        response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=auth)
-        if response.status_code == 200:
-            print(f'Category "{title}" updated successfully')
-        else:
-            print(f'Failed to update category: {response.status_code}')
-            print(response.json())  # Print the response for debugging
-        return category_id
-    else:
-        # If no matching category found, create a new category
-        category_data = {
-            'name': title,
-            'slug': slug,
-            'description': description,
-            'meta': {
-                '_metadata_id': entryID  # Add the metadata ID to the new category
+def create_category(title, slug, description, metadata_id):
+    for item in existing_category_metadata:
+        if metadata_id == item:
+            print(f"{metadata_id} found")
+            category_data = {
+                'name': title,
+                'slug': slug,
+                'metadata_id': metadata_id,
+                'description': description
             }
-        }
-
-        response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=auth)
-
-        # Check if the category creation was successful
-        if response.status_code == 201:
-            print(f'Category "{title}" created successfully')
-            category_id = response.json()['id']
-            return category_id
-        else:
-            print(f'Failed to create category: {response.status_code}')
-            print(response.json())  # Print the response for debugging
+            response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=auth)
+            return
+    category_data = {
+        'name': title,
+        'slug': slug,
+        'metadata_id': metadata_id,
+        'description': description
+    }
+    response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=auth)
+    if response.status_code == 201:
+        print(f'{title} updated successfully')
         return
-
+    else:
+        print(f'Failed to update page: {response.status_code}')
+        print(title)
+        print(response.json())  # Print the response for debugging
+    return 
+    
 def create_parent_page(activityTitle, activityDescription, entryID):
     for item in existing_metadata:
         if entryID == item['metadata_id']:
@@ -357,15 +309,12 @@ activity_data = []
 article_data = []
 slugs = []
 existing_metadata = []
-existing_metadata_categories = []
-
+existing_category_metadata = []
 
 print("Fetching metadata ID's")
 existing_pages = fetch_all_pages_concurrently()
 fetch_metadata_id_concurrently(existing_pages)
-existing_categories = fetch_all_categories_concurrently()  # Assume this function fetches categories concurrently.
-fetch_category_metadata_concurrently(existing_categories)
-print(existing_metadata_categories)
+fetch_category_metadata_id()
 
 print("Fetching contentful data")
 while True: # Fetch categories
@@ -405,7 +354,6 @@ while True:  # Fetch articles
     if len(articles) < limit:  # Break the loop if no more articles are fetched
         break 
 
-print("Parsing contentful entries")
 for entry in all_categories:
     slug = entry.fields().get('slug')  
     title = entry.fields().get('title')
@@ -413,12 +361,12 @@ for entry in all_categories:
     category_type = entry.fields().get('category_type')
     category_id = entry.sys.get('id')
     if category_type == "Activity":
-        create_category(title, slug, description, category_id)
         limit = 20
         skip = 0
         total_fetched = 0
 
-        while True:
+        
+        '''while True:
             linked_entries = client.entries({
                 'links_to_entry': category_id,
                 'skip': skip,
@@ -430,20 +378,16 @@ for entry in all_categories:
                 content_type = linked_entry.sys.get('content_type')
                 if content_type.id == "brim":  # Check if content type is 'article'
                     title = linked_entry.fields().get('title', 'No title')
-                    entry_description = linked_entry.fields().get('description_full','No description')
                     entry_id = linked_entry.sys.get('id', 'Unknown ID')
-                    if isinstance(entry_description, dict):
-                        try:
-                            entry_description = renderer.render(entry_description)
-                        except Exception as e:
-                            print(f"Failed to render description for '{title}': {e}")
-                            entry_description = 'Rendering failed.'
+                    #create_category(title)
+
+                    #Create a category with this title
                     #print(f"- {title}: {entry_id}")
             
             total_fetched += len(linked_entries)
             skip += len(linked_entries)
             if len(linked_entries) < limit:
-                break
+                break'''
 for entry in all_articles:
     slug = entry.fields().get('slug')  
     title = entry.fields().get('title')
@@ -489,7 +433,8 @@ for entry in all_activities:
 json_slug_data = json.dumps(slugs)
 json_article_data = json.dumps(article_data, indent=4)
 json_activity_data = json.dumps(activity_data, indent=4)
-print("Collected all Contentful data")
+print("Collected all contentful data")
+
 print(f"Compiling {model} prompts")
 processed_articles = []
 with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt execution
@@ -515,49 +460,38 @@ for activity in sorted(activity_types):
     for entry in all_activities:
         title = entry.fields().get('title')
         content = entry.fields().get('description_full')
-        entry_id = entry.sys.get('id')
         categories = entry.fields().get('categories', [])
-        
-        # Retrieve both title and ID for each category
-        categories_list = [
-            {'title': category.fields().get('title'), 'id': category.sys.get('id')}
-            for category in categories
-        ]
-        
-        if categories_list:
-            category = categories_list[0]
-            category_title = category['title']
-            category_entry_id = category['id']
-            
-            # Now you can use both the title and the ID as needed
-            print(f"Category Title: {category_title}, Category Entry ID: {category_entry_id}")
 
-            # Retrieve the category ID by title
-            category_id = None
-            if category_title:
-                for cat in existing_categories:
-                    if cat['name'] == category_title:
-                        category_id = cat['id']
-                        break
+        
+        if title == activity:
+            barriers = entry.fields().get('barriers', [])
+            barriers_list = [barrier.fields().get('title') for barrier in barriers]
+            categories_title_list = [category.fields().get('title') for category in categories]
+            categories_slug_list = [category.fields().get('slug') for category in categories]
+            categories_id_list = [category.sys.get('id') for category in categories]
 
-            if category_id:
-                # Update or create the page with the assigned category
-                page_id = create_parent_page(title, content, entry_id)
+            category_title = categories_title_list[0] if categories_title_list else ''
+            category_slug = categories_slug_list[0] if categories_slug_list else ''
+            category_id =  categories_id_list[0] if categories_id_list else ''
+                   
+            id = entry.sys.get('id')
+            create_category(category_title, category_slug, "", category_id)
+            if content:
+                content = renderer.render(content)
+                content += "\nBarriers: \n"
+                for i in barriers_list:
+                    content += i
+                    content += "\n"
+                parent_page_id = create_parent_page(activity, content, id)
+                parent_page_ids[activity] = parent_page_id
                 
-                if page_id:
-                    # Assign the category to the page
-                    page_data = {
-                        'categories': [category_id]
-                    }
-
-                    response = requests.post(f"{URL}/wp-json/wp/v2/pages/{page_id}", json=page_data, auth=auth)
-                    if response.status_code == 200:
-                        print(f'Page "{title}" successfully assigned to category "{category_title}"')
-                    else:
-                        print(f'Failed to assign category "{category_title}" to page "{title}": {response.status_code}')
-                        print(response.json())  # Print the response for debugging
-            else:
-                print(f'Category "{category_title}" not found for page "{title}"')
+            if not content:
+                content = "\nBarriers: \n"
+                for i in barriers_list:
+                    content += i
+                    content += "\n"
+                parent_page_id = create_parent_page(activity, content, id)
+                parent_page_ids[activity] = parent_page_id
 other_page_id = ""
 
 with ThreadPoolExecutor(max_workers=10) as executor:
