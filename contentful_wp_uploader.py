@@ -152,13 +152,19 @@ def create_category(title, slug, description, metadata_id):
     for item in existing_category_metadata:
         if metadata_id == item:
             print(f"{metadata_id} found")
+            category_id = existing_category_metadata[item]
             category_data = {
                 'name': title,
                 'slug': slug,
                 'metadata_id': metadata_id,
                 'description': description
             }
-            response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=auth)
+            response = requests.put(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=auth)
+            if response.status_code == 200:
+                print(f'{title} updated successfully')
+            else:
+                print(f'Failed to update category: {response.status_code}')
+                print(response.json())  # Print the response for debugging
             return
     category_data = {
         'name': title,
