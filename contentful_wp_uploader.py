@@ -27,21 +27,6 @@ auth = HTTPBasicAuth(USERNAME, PASSWORD)
 api_url = f"{URL}wp-json/wp/v2/pages"
 meta_url = f"{api_url}/{{page_id}}" 
 
-'''data = {
-    "title": "page-title",
-    "content": "page-content",
-    "status": "publish"
-}
-
-response = requests.post(URL, json=data, auth=HTTPBasicAuth(USERNAME, PASSWORD))
-#print(response.json())
-if response.status_code == 201:  # 201 Created
-    print("Page created successfully!")
-    print(response.json())
-else:
-    print(f"Failed to create page. Status code: {response.status_code}")
-    #print(response.json())'''
-
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
                                environment=environment,
@@ -112,7 +97,8 @@ def process_article(entry):
     
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
-    ai_updated_article = renderer.render(content)#generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
+    #ai_updated_article = renderer.render(content)
+    ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     return {
         'title': title,
         'id': id,
@@ -158,18 +144,34 @@ def fetch_metadata_id_concurrently(existing_pages):
                 existing_metadata.append(result)
 
 def fetch_category_metadata_id():
-    response = requests.get(f"{URL}/wp-json/wp/v2/categories", auth=auth)
+    '''response = requests.get(f"{URL}/wp-json/wp/v2/categories", auth=auth)
     categories = response.json()
     # Loop through the categories to find the one with the matching metadata_id
     for category in categories:
         #print(f"Category ID for Metadata ID: {category['id']}")
         existing_category_metadata.append({'id': category['id'], 'metadata_id': category['metadata_id']})
-    #print(f"No category found with Metadata ID {category['metadata_id']}")
+    #print(f"No category found with Metadata ID {category['metadata_id']}")'''
+    page = 1
+    while True:
+        response = requests.get(f"{URL}/wp-json/wp/v2/categories", params={'per_page': 20, 'page': page}, auth=auth)
+        categories = response.json()
+        
+        if not categories:
+            break
+
+        for category in categories:
+            if 'metadata_id' in category:
+                #print(f"Category ID: {category['id']} for Metadata ID: {category['metadata_id']}")
+                existing_category_metadata.append({'id': category['id'], 'metadata_id': category['metadata_id']})
+            else:
+                print(f"Category ID: {category['id']} has no Metadata ID.")
+        
+        page += 1  # Move to the next page
 
 def create_category(title, description, slug, metadata_id):
     for item in existing_category_metadata:
         if metadata_id == item['metadata_id']:
-            print(f"{metadata_id} found")
+            #print(f"{metadata_id} found")
             category_id = item['id']
             category_data = {
                 'name': title,
@@ -177,6 +179,7 @@ def create_category(title, description, slug, metadata_id):
                 'metadata_id': metadata_id,
                 'description': description
             }
+            existing_category_metadata.append(metadata_id)
             response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=auth)
             if response.status_code in [200,201]:
                 print(f'{title} updated successfully')
@@ -203,7 +206,7 @@ def create_category(title, description, slug, metadata_id):
     
 def create_parent_page(activityTitle, activityDescription, entryID, category_id):
     for item in existing_metadata:
-        print(f"{entryID} -- {item['metadata_id']}")
+        #print(f"{entryID} -- {item['metadata_id']}")
         if entryID == item['metadata_id']:
             print(f"{entryID} found")
             page_id = item['id']
@@ -344,6 +347,7 @@ existing_pages = fetch_all_pages_concurrently()
 fetch_metadata_id_concurrently(existing_pages)
 fetch_category_metadata_id()
 
+
 print("Fetching contentful data")
 while True: # Fetch categories
     categories = client.entries({
@@ -388,8 +392,9 @@ for entry in all_categories:
     description = entry.fields().get('description') # change to whatever we choose as the name for description
     category_type = entry.fields().get('category_type')
     category_id = entry.sys.get('id')
-    '''if category_type == "Activity":
-        limit = 20
+    if category_type == "Activity":
+        create_category(title, "", slug, category_id)
+        '''limit = 20
         skip = 0
         total_fetched = 0
 
@@ -458,6 +463,7 @@ for entry in all_activities:
             "description": rendered_description
         })
 
+fetch_category_metadata_id()
 json_slug_data = json.dumps(slugs)
 json_article_data = json.dumps(article_data, indent=4)
 json_activity_data = json.dumps(activity_data, indent=4)
@@ -477,8 +483,8 @@ with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt
         except Exception as exc:
             print(f"Exception occurred while processing article: {exc}")
 
-#for article in processed_articles:
-#    article["content"] = article["content"].replace("[ARTICLE END]", "")    
+for article in processed_articles:
+    article["content"] = article["content"].replace("[ARTICLE END]", "")    
 
 activity_types = {item['activity'] for item in processed_articles}    
 parent_pages = {}
@@ -508,8 +514,8 @@ for activity in sorted(activity_types):
             list = []
             id = entry.sys.get('id')
             
-            for title, slug, ids in zip(categories_title_list, categories_slug_list, categories_id_list):
-                category_id = create_category(title, "", slug, ids)
+            for titles, slugs, ids in zip(categories_title_list, categories_slug_list, categories_id_list):
+                category_id = create_category(titles, "", slugs, ids)
                 list.append(category_id)
             
             if content:
