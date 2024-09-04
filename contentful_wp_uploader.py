@@ -37,11 +37,11 @@ try:
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
   
-refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
-dontSkipCategory = 'N'#input("Do you want to skip to organize and update EVERY category? (y/n): ").strip().upper()
+refreshArticles = input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
+dontSkipCategory = input("Do you want to organize and update EVERY category? (y/n): ").strip().upper()
 
 if refreshArticles == 'Y':
-    date_threshold_articles = datetime(2024, 1, 1).isoformat()
+    date_threshold_articles = datetime(2023, 1, 1).isoformat()
 else: 
     dates = list(collection.find().sort('created_at', -1))
     dates_to_delete = dates[1:] # deletes all dates but the last one
