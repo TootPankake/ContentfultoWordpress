@@ -12,14 +12,13 @@ from rich_text_renderer import RichTextRenderer
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD, URI, URL
 
-### category list page -> category detail page -> activity detail page (add article links)
 # makefile or input to do clean sweep or only recent articles, maybe add api tokens as parameters to aws function
 # exponential backoff
 # link to articles instead of barriers -^
 
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
-model = "gpt-4o-mini"
-environment = 'development' # Not master
+model = "gpt-4o"
+environment = 'development'
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB["brimming-test"]
 collection = db["contentfulAccessDates"]
@@ -39,8 +38,10 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
   
 refreshArticles = 'Y'#input("Do you need to refresh EVERY article? (y/n): ").strip().upper()
+dontSkipCategory = 'N'#input("Do you want to skip to organize and update EVERY category? (y/n): ").strip().upper()
+
 if refreshArticles == 'Y':
-    date_threshold_articles = datetime(2023, 1, 1).isoformat()
+    date_threshold_articles = datetime(2024, 1, 1).isoformat()
 else: 
     dates = list(collection.find().sort('created_at', -1))
     dates_to_delete = dates[1:] # deletes all dates but the last one
@@ -97,7 +98,7 @@ def process_article(entry):
     
     activity = activities_list[0] if activities_list else ''
     barrier = barriers_list[0] if barriers_list else ''
-    #ai_updated_article = renderer.render(content)
+    #ai_updated_article = renderer.render(content) 
     ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     return {
         'title': title,
@@ -494,15 +495,14 @@ body = ""
 for activity in sorted(activity_types):
     for entry in all_activities:
         title = entry.fields().get('title')
-        content = entry.fields().get('description_full')
+        content = entry.fields().get('description_full', [])
         categories = entry.fields().get('categories', [])
+        activity_slug = entry.fields().get('slug', [])
 
         
         if title == activity:
-            barriers = entry.fields().get('barriers', [])
             articles = entry.fields().get('articles', [])
-            barriers_list = [barrier.fields().get('title') for barrier in barriers]
-            articles_list = [article.fields().get('title') for article in articles]
+            articles_list = [article.fields().get('slug') for article in articles]
             categories_title_list = [category.fields().get('title') for category in categories]
             categories_slug_list = [category.fields().get('slug') for category in categories]
             categories_id_list = [category.sys.get('id') for category in categories]
@@ -511,28 +511,27 @@ for activity in sorted(activity_types):
             category_title = categories_title_list[0] if categories_title_list else ''
             category_slug = categories_slug_list[0] if categories_slug_list else ''
             category_id =  categories_id_list[0] if categories_id_list else ''
-            list = []
+            category_list = []
             id = entry.sys.get('id')
-            
-            for titles, slugs, ids in zip(categories_title_list, categories_slug_list, categories_id_list):
-                category_id = create_category(titles, "", slugs, ids)
-                list.append(category_id)
+            if dontSkipCategory == 'Y':
+                for titles, slugs, ids in zip(categories_title_list, categories_slug_list, categories_id_list):
+                    category_id = create_category(titles, "", slugs, ids)
+                    category_list.append(category_id)
             
             if content:
                 content = renderer.render(content)
                 content += "\nArticles: \n"
                 for i in articles_list:
-                    content += i
+                    content += f"https://discover.brimming.app/{i}"
                     content += "\n"
-                parent_page_id = create_parent_page(activity, content, id, list)
+                parent_page_id = create_parent_page(activity, content, id, category_list)
                 parent_page_ids[activity] = parent_page_id
-                
             if not content:
                 content = "\nArticles: \n"
                 for i in articles_list:
-                    content += i
+                    content += f"https://discover.brimming.app/{i}"
                     content += "\n"
-                parent_page_id = create_parent_page(activity, content, id, list)
+                parent_page_id = create_parent_page(activity, content, id, category_list)
                 parent_page_ids[activity] = parent_page_id
 other_page_id = ""
 with ThreadPoolExecutor(max_workers=10) as executor:
@@ -544,5 +543,5 @@ with ThreadPoolExecutor(max_workers=10) as executor:
             future.result()  # Retrieve the result to trigger any exceptions
         except Exception as exc:
             print(f"Exception occurred while processing article '{article['title']}': {exc}")
-        
+
 print("\nAll articles have been processed successfully.")
