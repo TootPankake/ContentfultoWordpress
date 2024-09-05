@@ -3,7 +3,8 @@ import contentful
 from openai import OpenAI
 from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN
 
-# slugs match titles or keywords (short title) combining slug of activity and barrier
+replace_titles = input("Do you want to publish all changes? (y/n): ").strip().upper()
+moreQueries = input("Do you want the option to doublecheck the results? (y/n): ").strip().upper()
 
 
 # Set up your API keys
@@ -21,7 +22,6 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
 
 clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
-moreQueries = input("Do you want the option to doublecheck the results?").strip().upper()
 retry = 'N'
 # Fetch the most recent article from Contentful
 temperature = 0.9
@@ -30,8 +30,8 @@ entries = []
 articles = client.entries({
     'content_type': "article",
     'order': '-sys.createdAt',  # Order by creation date descending
-    'skip': 80, # skip the an arbitrary amount of entries first
-    'limit': 20,  # Fetch only the most recent entry
+    'skip': 0, # skip the an arbitrary amount of entries first
+    'limit': 100,  # Fetch only the most recent entry
 })
 entries.extend(articles)
 
@@ -111,24 +111,24 @@ for entry in entries:
             'Content-Type': 'application/vnd.contentful.management.v1+json',
             'X-Contentful-Version': str(version)
         }
-
-        '''update_response = requests.put(update_url, headers=update_headers, json=entry_details)
-        if update_response.status_code == 200:
-            print(f"Successfully updated title for entry ID {entry_id}")
-            
-            # Auto-publish the updated entry
-            publish_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}/published"
-            publish_headers = {
-                'Authorization': f'Bearer {contentful_management_token}',
-                'X-Contentful-Version': str(version + 1)  # Increment version for publish request
-            }
-            
-            publish_response = requests.put(publish_url, headers=publish_headers)
-            if publish_response.status_code == 200:
-                print(f"Successfully published entry ID {entry_id}")
+        if replace_titles == 'Y':
+            update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+            if update_response.status_code == 200:
+                print(f"Successfully updated title for entry ID {entry_id}")
+                
+                # Auto-publish the updated entry
+                publish_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}/published"
+                publish_headers = {
+                    'Authorization': f'Bearer {contentful_management_token}',
+                    'X-Contentful-Version': str(version + 1)  # Increment version for publish request
+                }
+                
+                publish_response = requests.put(publish_url, headers=publish_headers)
+                if publish_response.status_code == 200:
+                    print(f"Successfully published entry ID {entry_id}")
+                else:
+                    print(f"Failed to publish entry ID {entry_id}: {publish_response.status_code}, {publish_response.text}")
             else:
-                print(f"Failed to publish entry ID {entry_id}: {publish_response.status_code}, {publish_response.text}")
-        else:
-            print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")'''
+                print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")
     else:
         print("Title not found for the entry.")
