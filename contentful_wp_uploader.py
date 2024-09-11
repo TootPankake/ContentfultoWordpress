@@ -19,8 +19,7 @@ clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where()
 db = clientDB['brimming-test']
 collection = db['contentfulAccessDates']
 auth = HTTPBasicAuth(USERNAME, PASSWORD)
-page_url = f"{URL}wp-json/wp/v2/pages"
-meta_url = f"{page_url}/{{page_id}}" 
+
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
@@ -33,25 +32,19 @@ try:
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
   
-refreshArticles = 'Y'#input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
-gptSweep = 'N'#input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
+refreshArticles = input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
+gptSweep = input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
 
 if refreshArticles == 'Y':
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
 else: 
-    dates = list(collection.find().sort('created_at', -1))
-    dates_to_delete = dates[1:] # deletes all dates but the last one
-    ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
-    collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
     recent_posts = collection.find().sort('timestamp', -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
-    today = {'name': datetime.now(), 'created_at': datetime.now()}
-    collection.insert_one(today) # move to end -^
     for post in recent_posts:
         formattedTime = post['created_at']
-        adjusted_time = formattedTime - timedelta(minutes=1) # gives some leeway on last db date request
+        adjusted_time = formattedTime #- timedelta(minutes=1) # gives some leeway on last db date request
         formatted_date = adjusted_time.strftime("%Y-%m-%d %H:%M:%S.%f")
     date_threshold_articles = formatted_date
-    clientDB.close() ### put in the end
+    
     
 def generate_article_links(title, article, slug_list):
     html_output = renderer.render(article)
@@ -111,7 +104,7 @@ def process_article(entry):
 def fetch_all_pages():
 
     def fetch_page_concurrently(page_number):
-        response = requests.get(page_url, params={'per_page': 100, 'page': page_number}, auth=auth, timeout = 10)
+        response = requests.get(f"{URL}wp-json/wp/v2/pages", params={'per_page': 100, 'page': page_number}, auth=auth, timeout = 10)
         return response.json() if response.status_code == 200 else []
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -202,7 +195,7 @@ def create_parent_page(title, description, slug, metadata_id, category_ids):
                 'slug': slug,
                 'categories': category_ids
             }
-            response = requests.post(meta_url.format(page_id=page_id), json=page_data, auth=auth)
+            response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=auth)
             if response.status_code in [200,201]:
                 print(f"updated --> {title}")
                 return page_id
@@ -221,10 +214,10 @@ def create_parent_page(title, description, slug, metadata_id, category_ids):
         'status': 'publish'
     }
 
-    response = requests.post(page_url, json=page_data, auth=auth)
+    response = requests.post(f"{URL}wp-json/wp/v2/pages", json=page_data, auth=auth)
 
     if response.status_code == 201:
-        print(f"created --> {title}\n")
+        print(f"created --> {title}")
         page_id = response.json()['id']
 
         # Update the metadata
@@ -234,7 +227,7 @@ def create_parent_page(title, description, slug, metadata_id, category_ids):
             }
         }
 
-        update_meta_response = requests.post(meta_url.format(page_id=page_id), json=meta_data, auth=auth)
+        update_meta_response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=meta_data, auth=auth)
         if update_meta_response.status_code in [200,201]:
             #print("Metadata updated")
             return page_id
@@ -260,7 +253,7 @@ def create_child_page(article, parent_id):
             page_id = item['id']
             
             if gptSweep != 'Y':
-                url = f"{page_url}/{page_id}"
+                url = f"{URL}wp-json/wp/v2/pages/{page_id}"
                 response = requests.get(url, auth=auth)
                 if response.status_code == 200:
                     page_data = response.json()
@@ -275,7 +268,7 @@ def create_child_page(article, parent_id):
                 'parent': parent_id
             }
             found = True
-            response = requests.post(meta_url.format(page_id=page_id), json=page_data, auth=auth)
+            response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=auth)
             if response.status_code == 200:
                 print(f"updated --> {article_title}")
             else:
@@ -292,7 +285,7 @@ def create_child_page(article, parent_id):
         'parent': parent_id
     }
 
-    response = requests.post(page_url, json=page_data, auth=auth)
+    response = requests.post(f"{URL}wp-json/wp/v2/pages", json=page_data, auth=auth)
 
     # Check if the page creation was successful
     if response.status_code == 201:
@@ -306,7 +299,7 @@ def create_child_page(article, parent_id):
             }
         }
 
-        update_meta_response = requests.post(meta_url.format(page_id=page_id), json=meta_data, auth=auth)
+        update_meta_response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=meta_data, auth=auth)
         if update_meta_response.status_code == 200:
             return #print('Metadata updated successfully')
         else:
@@ -342,6 +335,7 @@ fetch_all_pages()
 fetch_page_metadata_id()
 fetch_category_metadata_id()
 
+print("Fetching contentful data")
 while True: # Fetch categories
     categories = client.entries({
         'content_type': 'category',
@@ -483,11 +477,9 @@ for activity in sorted(activity_types):
             category_slug = categories_slug_list[0] if categories_slug_list else ''
             category_id =  categories_id_list[0] if categories_id_list else ''
             category_list = []
-            
-            for i in all_category_ids:
-                for j in categories_id_list:
-                    if i['meta_data_id'] == j:
-                        category_list.append(i['id'])
+                        
+            category_id_dict = {item['meta_data_id']: item['id'] for item in all_category_ids} # dictionary to look through category id list
+            category_list = [category_id_dict[j] for j in categories_id_list if j in category_id_dict]
 
             if content:
                 content = renderer.render(content)
@@ -515,3 +507,12 @@ with ThreadPoolExecutor(max_workers=10) as executor:
             #print(f"Exception occurred while processing article '{article['title']}': {exc}")
 
 print("\nAll articles have been processed successfully.")
+
+if refreshArticles != 'Y':
+    today = {'name': datetime.now(), 'created_at': datetime.now()}
+    collection.insert_one(today)
+    dates = list(collection.find().sort('created_at', -1))
+    dates_to_delete = dates[1:] # deletes all dates but the last one
+    ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
+    collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
+    clientDB.close() ### put in the end
