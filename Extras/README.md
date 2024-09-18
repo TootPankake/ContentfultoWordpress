@@ -6,13 +6,16 @@ The script also includes functionality for hyperlinking specific words or phrase
 
 ## Setup
 pip the following packages
-- contentful==2.1.1
-- openai==1.35.5
+- contentful==2.2.0
+- openai==0.28
 - requests==2.32.3
 - rich-text-renderer==0.2.8
+- pymongo==4.8.0
+- certifi==2024.7.4
+
 
 ### Requirements
-- Python 3.x
+- Python 3.12
 - Contentful API credentials
 - OpenAI API credentials
 - WordPress site with REST API enabled

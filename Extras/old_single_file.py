@@ -3,7 +3,7 @@ import json
 import requests
 import certifi
 import contentful
-from openai import OpenAI
+import openai
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, timedelta
 from pymongo.server_api import ServerApi
@@ -12,8 +12,8 @@ from rich_text_renderer import RichTextRenderer
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import SPACE_ID, ACCESS_TOKEN, OPENAI_API_TOKEN, USERNAME, PASSWORD, URI, URL
 
-clientAI = OpenAI(api_key=OPENAI_API_TOKEN)
-model = 'gpt-4o'
+openai.api_key = OPENAI_API_TOKEN
+model = 'gpt-4o-mini'
 environment = 'development'
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB['brimming-test']
@@ -23,15 +23,15 @@ auth = HTTPBasicAuth(USERNAME, PASSWORD)
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  # Initialize Contentful API Client
-                               environment=environment,
-                               max_include_resolution_depth=1)
+                            environment=environment,
+                            max_include_resolution_depth=1)
     renderer = RichTextRenderer()  # To render RTF input from contentful
     date_threshold = datetime(2024, 1, 1).isoformat()
     date_threshold_categories = datetime(2023, 1, 1).isoformat()
     print("Successfully connected to Contentful client.")
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
-  
+
 refreshArticles = input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
 gptSweep = input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
 
@@ -41,7 +41,7 @@ else:
     recent_posts = collection.find().sort('timestamp', -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
     for post in recent_posts:
         formattedTime = post['created_at']
-        adjusted_time = formattedTime #- timedelta(minutes=1) # gives some leeway on last db date request
+        adjusted_time = formattedTime #- timedelta(minutes=1) gives some leeway on last db date request
         formatted_date = adjusted_time.strftime("%Y-%m-%d %H:%M:%S.%f")
     date_threshold_articles = formatted_date
     
@@ -59,17 +59,20 @@ def generate_article_links(title, article, slug_list):
     
     Optimize for html output, only output the updated article, nothing else."""
 
-    response = clientAI.chat.completions.create(
+    response = openai.ChatCompletion.create(
         model=model,
-        temperature=0.1,
+        temperature=0,
         messages=[
             {'role': 'system', 'content': "Assistant, providing assistance with text processing and link insertion as requested."},
             {'role': 'user', 'content': prompt}
         ]
     )
-    content = response.choices[0].message.content
+
+    # Extracting the generated content
+    content = response['choices'][0]['message']['content']
     content = content.replace('[ARTICLE START]\n', '').replace('\n[ARTICLE END]', '')
     content = content.replace('```html\n', '').replace('\n```', '')
+    
     print(f"Article link completed: {title}")
     return content
 
@@ -276,7 +279,7 @@ def create_child_page(article, parent_id):
                 print(article_title)
                 print(response.json())
             return
-  
+
     # If no matching metadata ID found, create a new page
     page_data = {
         'title': article_title,
@@ -308,7 +311,7 @@ def create_child_page(article, parent_id):
     else:
         print(f"Failed to create page: {response.status_code}")
         print(response.json()) 
- 
+
 def create_child_page_concurrently(article):
     if article['has_activities_and_barriers']:
         activity = article['activity']
@@ -415,7 +418,6 @@ for entry in all_activities:
             'description': rendered_description
         })
 
-fetch_category_metadata_id() # refresh category logs after updates
 json_slug_data = json.dumps(activity_slugs)
 json_article_data = json.dumps(article_data, indent=4)
 json_activity_data = json.dumps(activity_data, indent=4)
@@ -451,6 +453,7 @@ for entry in all_categories:
         id = create_category(category_title, category_description, category_slug, category_id)
         all_category_ids.append({'id': id, 'meta_data_id': category_id}) 
 
+fetch_category_metadata_id() # refresh category logs after updates
 activity_types = {item['activity'] for item in processed_articles}    
 parent_pages = {}
 parent_page_ids = {}
@@ -507,7 +510,6 @@ with ThreadPoolExecutor(max_workers=10) as executor:
             #print(f"Exception occurred while processing article '{article['title']}': {exc}")
 
 print("\nAll articles have been processed successfully.")
-
 if refreshArticles != 'Y':
     today = {'name': datetime.now(), 'created_at': datetime.now()}
     collection.insert_one(today)
@@ -516,3 +518,4 @@ if refreshArticles != 'Y':
     ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
     collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
     clientDB.close() ### put in the end
+
