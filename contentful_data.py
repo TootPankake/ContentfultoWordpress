@@ -1,5 +1,5 @@
 from wordpress_operations import create_category
-
+max_articles = 1000
 def fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client):
     all_categories, all_activities, all_articles = [], [], []
     while True: # Fetch categories

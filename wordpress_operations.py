@@ -3,7 +3,6 @@ from config import URL, AUTH
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def fetch_all_pages(existing_pages):
-
     def fetch_page_concurrently(page_number):
         response = requests.get(f"{URL}wp-json/wp/v2/pages", params={'per_page': 100, 'page': page_number}, auth=AUTH, timeout = 10)
         return response.json() if response.status_code == 200 else []
@@ -20,8 +19,10 @@ def fetch_page_metadata_id(existing_pages, existing_metadata):
         if meta_response.status_code == 200:
             meta_data = meta_response.json().get('meta', {})
             metadata_id = meta_data.get('_metadata_id', None)
+            metadata_title = meta_data.get('title', None)
+            metadata_content = meta_data.get('content', None)
             if metadata_id:
-                return {'id': page_id, 'metadata_id': metadata_id}
+                return {'content': metadata_content, 'title': metadata_title, 'id': page_id, 'metadata_id': metadata_id}
         return None
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -86,25 +87,26 @@ def create_category(title, description, slug, metadata_id, existing_category_met
 def create_parent_page(title, description, slug, metadata_id, category_ids, existing_metadata):
     for item in existing_metadata:
         if metadata_id == item['metadata_id']:
-            #print(f"{metadata_id} found")
             page_id = item['id']
-
-            # Update the page content
-            page_data = {
-                'title': title,
-                'content': description,
-                'slug': slug,
-                'categories': category_ids
-            }
-            response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
-            if response.status_code in [200,201]:
-                print(f"updated --> {title}")
-                return page_id
-            else:
-                print(f"Failed to update page: {response.status_code}")
-                print(title)
-                print(response.json())  # Print the response for debugging
-            return 
+            
+            if (item['content'] != description or item['categories'] != category_ids):
+                # Update the page content
+                page_data = {
+                    'title': title,
+                    'content': description,
+                    'slug': slug,
+                    'categories': category_ids
+                }
+                response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
+                if response.status_code in [200,201]:
+                    print(f"updated --> {title}")
+                    return page_id
+                else:
+                    print(f"Failed to update page: {response.status_code}")
+                    print(title)
+                    print(response.json())  # Print the response for debugging
+                return 
+            return page_id
     
     # If no matching metadata ID found, create a new page
     page_data = {
@@ -142,6 +144,7 @@ def create_parent_page(title, description, slug, metadata_id, category_ids, exis
 def create_child_page(article, parent_id, existing_metadata, gptSweep):
     article_title = article['title']
     article_description = article['content']
+    article_slug = article['slug']
     metadata_id = article['id']
     
     if not article_description:
@@ -166,6 +169,7 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
             page_data = {
                 'title': article_title,
                 'content': article_description,
+                'slug': article_slug,
                 'parent': parent_id
             }
             found = True
@@ -182,6 +186,7 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
     page_data = {
         'title': article_title,
         'content': article_description,
+        'slug': article_slug,
         'status': 'publish',
         'parent': parent_id
     }

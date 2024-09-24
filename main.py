@@ -6,14 +6,14 @@ from datetime import datetime
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT
+from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT, AUTH
 from article_processing import process_article
 from contentful_data import fetch_contentful_data, render_articles, render_activities, render_categories
 from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_category_metadata_id,
                                   create_parent_page, create_child_page_concurrently)
 
 #def lambda_handler(event,context):
-#MongoDB initialization for access date storage
+# MongoDB initialization for access date storage
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB['brimming-test']
 collection = db['contentfulAccessDates']
@@ -30,14 +30,14 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
 
 # Prompt user on execution parameters
-refreshArticles = input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
-gptSweep = input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
+refreshArticles = 'Y'#input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
+gptSweep = 'N'#input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
 # Lambda Replacements
-#    refreshArticles = event.get('refreshArticles').strip().upper()
-#    gptSweep = event.get('gptSweep').strip().upper()
+#refreshArticles = event.get('refreshArticles').strip().upper()
+#gptSweep = event.get('gptSweep').strip().upper()
 
 if refreshArticles == 'Y':
-    date_threshold_articles = datetime(2024, 1, 1).isoformat()
+    date_threshold_articles = datetime(2023, 1, 1).isoformat()
 else: 
     recent_posts = collection.find().sort('timestamp', -1).limit(1) # Fetch the most recent posts (assuming you have a 'timestamp' field)
     for post in recent_posts:
@@ -67,10 +67,10 @@ print("Rendering contentful data")
 render_articles(all_articles, RENDERER, article_data)
 render_activities(all_activities, RENDERER, activity_data, activity_slugs)
 
+print("Collected all contentful data")
 json_slug_data = json.dumps(activity_slugs)
 json_article_data = json.dumps(article_data, indent=4)
 json_activity_data = json.dumps(activity_data, indent=4)
-print("Collected all contentful data")
 
 print(f"Compiling {MODEL} prompts\n")
 processed_articles = []
@@ -114,8 +114,7 @@ for activity in sorted(activity_types):
             categories_title_list = [category.fields().get('title') for category in categories]
             categories_slug_list = [category.fields().get('slug') for category in categories]
             categories_id_list = [category.sys.get('id') for category in categories]
-            
-
+        
             category_title = categories_title_list[0] if categories_title_list else ''
             category_slug = categories_slug_list[0] if categories_slug_list else ''
             category_id =  categories_id_list[0] if categories_id_list else ''
@@ -124,22 +123,23 @@ for activity in sorted(activity_types):
             category_id_dict = {item['meta_data_id']: item['id'] for item in all_category_ids} # dictionary to look through category id list
             category_list = [category_id_dict[j] for j in categories_id_list if j in category_id_dict]
 
+            
             if content:
                 content = RENDERER.render(content)
                 content += "\nArticles: \n"
                 for i in articles_list:
-                    content += f"{URL}{i}\n"
+                    content += f"{URL}{activity_slug}/{i}/\n"
                 parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
                 parent_page_ids[activity] = parent_page_id
             if not content:
                 content = "\nArticles: \n"
                 for i in articles_list:
-                    content += f"{URL}{i}\n"
+                    content += f"{URL}{activity_slug}/{i}/\n"
                 parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
                 parent_page_ids[activity] = parent_page_id
 
 print("\nArticles: ")
-with ThreadPoolExecutor(max_workers=10) as executor:
+with ThreadPoolExecutor(max_workers=5) as executor:
     futures = {executor.submit(create_child_page_concurrently, article, existing_metadata, parent_page_ids, gptSweep): article for article in processed_articles}
     for future in as_completed(futures):
         article = futures[future]

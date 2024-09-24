@@ -1,4 +1,5 @@
 import openai
+import time
 from config import URL, OPENAI_API_TOKEN, MODEL, RENDERER
 
 openai.api_key = OPENAI_API_TOKEN
@@ -34,6 +35,7 @@ def generate_article_links(title, article, slug_list):
     return content
 
 def process_article(entry, gptSweep, json_slug_data):
+    time.sleep(1)
     slug = entry.fields().get('slug')  
     title = entry.fields().get('title')
     content = entry.fields().get('content')
