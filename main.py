@@ -152,12 +152,11 @@ with ThreadPoolExecutor(max_workers=5) as executor:
 print("\nAll articles have been processed successfully.")
 
 # Insert new most recent access date once program is successfully compiled
-if refreshArticles != 'Y':
-    today = {'name': datetime.now(), 'created_at': datetime.now()}
-    collection.insert_one(today)
-    dates = list(collection.find().sort('created_at', -1))
-    dates_to_delete = dates[1:] # deletes all dates but the last one
-    ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
-    collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
-    clientDB.close() 
+today = {'name': datetime.now(), 'created_at': datetime.now()}
+collection.insert_one(today)
+dates = list(collection.find().sort('created_at', -1))
+dates_to_delete = dates[1:] # deletes all dates but the last one
+ids_to_delete = [doc['_id'] for doc in dates_to_delete] # Extract the _ids of documents to delete
+collection.delete_many({'_id': {'$in': ids_to_delete}}) # Delete the identified documents
+clientDB.close() 
 
