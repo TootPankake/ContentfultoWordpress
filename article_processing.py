@@ -39,16 +39,19 @@ def call_openai_with_backoff(prompt, max_retries=5, initial_delay=1):
 
 def generate_article_links(title, article, slug_list):
     html_output = RENDERER.render(article)
+
     prompt = f"""
+    Slugs: {slug_list}
+    
+    If any words/phrases in the below article match one of the above slugs, then replace its first appearance, no duplicates,
+    with a hyperlink with the format \"{URL}<slug>\" Also have the hyperlink visible when the user hovers over it in HTML.
+    
+    Optimize for html output, only output the updated article, nothing else.
+    
     [ARTICLE START]
     {html_output} 
     [ARTICLE END]
-    If any words/phrases match one of the below slugs, then replace its first appearance, no duplicates,
-    with a hyperlink with the format \"{URL}<slug>\" Also have the hyperlink visible when the user hovers over it in HTML.
-
-    Slugs: {slug_list}.
-    
-    Optimize for html output, only output the updated article, nothing else."""
+    """
 
     response = call_openai_with_backoff(prompt)
 
@@ -61,7 +64,6 @@ def generate_article_links(title, article, slug_list):
     return content
 
 def process_article(entry, gptSweep, json_slug_data):
-    time.sleep(1)
     slug = entry.fields().get('slug')  
     title = entry.fields().get('title')
     content = entry.fields().get('content')

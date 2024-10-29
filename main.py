@@ -12,7 +12,6 @@ from contentful_data import fetch_contentful_data, render_articles, render_activ
 from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_category_metadata_id,
                                   create_parent_page, create_child_page_concurrently)
 
-#def lambda_handler(event,context):
 # MongoDB initialization for access date storage
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
 db = clientDB['brimming-test']
@@ -30,11 +29,8 @@ except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
 
 # Prompt user on execution parameters
-refreshArticles = 'Y'#input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
-gptSweep = 'N'#input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
-# Lambda Replacements
-#refreshArticles = event.get('refreshArticles').strip().upper()
-#gptSweep = event.get('gptSweep').strip().upper()
+refreshArticles = input("\nDo you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()
+gptSweep = input("Do you need to reupdate ChatGPT article links? This takes a while. (y/n): ").strip().upper()
 
 if refreshArticles == 'Y':
     date_threshold_articles = datetime(2023, 1, 1).isoformat()
@@ -110,7 +106,8 @@ for activity in sorted(activity_types):
 
         if title == activity:
             articles = entry.fields().get('articles', [])
-            articles_list = [article.fields().get('slug') for article in articles]
+            articles_title_list = [article.fields().get('title') for article in articles]
+            articles_slug_list = [article.fields().get('slug') for article in articles]
             categories_title_list = [category.fields().get('title') for category in categories]
             categories_slug_list = [category.fields().get('slug') for category in categories]
             categories_id_list = [category.sys.get('id') for category in categories]
@@ -127,14 +124,14 @@ for activity in sorted(activity_types):
             if content:
                 content = RENDERER.render(content)
                 content += "\nArticles: \n"
-                for i in articles_list:
-                    content += f"{URL}{activity_slug}/{i}/\n"
+                for i, j in zip(articles_slug_list, articles_title_list):
+                    content += f"<a href=\"{URL}{activity_slug}/{i}/\">{j}</a>\n"
                 parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
                 parent_page_ids[activity] = parent_page_id
             if not content:
                 content = "\nArticles: \n"
-                for i in articles_list:
-                    content += f"{URL}{activity_slug}/{i}/\n"
+                for i, j in zip(articles_slug_list, articles_title_list):
+                    content += f"<a href=\"{URL}{activity_slug}/{i}/\">{j}</a>\n"
                 parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
                 parent_page_ids[activity] = parent_page_id
 

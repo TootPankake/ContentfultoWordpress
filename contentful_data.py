@@ -36,7 +36,7 @@ def fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_thres
         })
         all_articles.extend(articles)
         skip3 += limit 
-        if len(articles) < limit:  # Break the loop if no more articles are fetched
+        if len(articles) < limit: #or skip3 >= 25:  # Break the loop if no more articles are fetched
             break 
     return all_categories, all_activities, all_articles
 
@@ -61,7 +61,6 @@ def render_articles(all_articles, renderer, article_data):
                 'title': article_title,
                 'description': rendered_description
             })
-
 def render_activities(all_activities, renderer, activity_data, activity_slugs):
     for entry in all_activities:
         activity_slug = entry.fields().get('slug')  
@@ -84,7 +83,6 @@ def render_activities(all_activities, renderer, activity_data, activity_slugs):
                 'title': activity_title,
                 'description': rendered_description
             })
-            
 def render_categories(all_categories, all_category_ids, existing_category_metadata):
     for entry in all_categories:
         category_slug = entry.fields().get('slug')  
