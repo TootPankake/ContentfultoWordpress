@@ -25,14 +25,18 @@ with collection.watch() as stream:
                 renewal = full_document.get("subscription", {}).get("autoRenew")
                 endDate = full_document.get("subscription", {}).get("endDate")
                 #print(full_document) # for the entire thing
-                print("Inserted document:", document_id,"\nstatus->", status, "\nplan->", plan, "\nrenewal->", renewal, "\nendDate->", endDate)
+                #print("Inserted document:", document_id,"\nstatus->", status, "\nplan->", plan, "\nrenewal->", renewal, "\nendDate->", endDate)
                 
-            
+                collection.update_one(
+                        {"_id": document_id},
+                        {"$set": {"merchant": "manual-prolific", "subscription.status": "active"}} ### MODIFY THIS set function to add or remove new section
+                )
+
             elif operation_type == "update":
                 # Output only the updated fields for an update operation
                 update_description = change["updateDescription"]["updatedFields"]
                 print("Updated fields:", update_description)
-
+                
             elif operation_type == "delete":
                 # Output the _id of the deleted document
                 document_id = change["documentKey"]["_id"]
