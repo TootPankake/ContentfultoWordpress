@@ -21,7 +21,7 @@ def call_openai_with_backoff(prompt, max_retries=5, initial_delay=1):
             )
             return response  # Return response if successful
 
-        except openai.error.RateLimitError as e:
+        except openai.RateLimitError as e:
             # Handle 429 errors by backing off
             retries += 1
             if retries == max_retries:
@@ -39,7 +39,7 @@ def call_openai_with_backoff(prompt, max_retries=5, initial_delay=1):
 
 def generate_article_links(title, article, slug_list):
     html_output = RENDERER.render(article)
-
+    
     prompt = f"""
     Slugs: {slug_list}
     

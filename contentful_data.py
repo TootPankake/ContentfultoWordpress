@@ -27,6 +27,7 @@ def fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_thres
         if len(activities) < limit:  # Break the loop if no more entries are fetched
             break
     while True:  # Fetch articles 
+        limit = 25
         articles = client.entries({  
             'content_type': 'article',
             'limit': limit,

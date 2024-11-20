@@ -6,11 +6,24 @@ from datetime import datetime
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT, AUTH
+from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT
 from article_processing import process_article
 from contentful_data import fetch_contentful_data, render_articles, render_activities, render_categories
 from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_category_metadata_id,
-                                  create_parent_page, create_child_page_concurrently)
+                                  create_parent_page, create_child_page, create_child_page_concurrently)
+
+# singleTest = input("Single test?\n").strip().upper()
+# if singleTest == 'Y':
+#     article = {}
+#     article['title'] = "AAA Test Elementor Custom"
+#     article['content'] = "This is the content of the article."
+#     article['slug'] = "lego-slug"
+#     article['id'] = "0451"
+#     parent_id = 39314
+#     existing_metadata = []
+#     gptSweep = 'N'
+#     create_child_page(article, parent_id, existing_metadata, gptSweep)   
+#     #sys.exit()
 
 # MongoDB initialization for access date storage
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
@@ -49,9 +62,10 @@ activity_slugs = []
 activity_data, article_data = [], []
 existing_metadata, existing_category_metadata = [], []
 all_categories, all_activities, all_articles = [], [], []
-skip1 = skip2 = skip3 = 0
+skip1 = skip2 = 0
+skip3 = 5
 
-print("\nFetching metadata ID's")
+print("\nFetching metadata entry ID's")
 fetch_all_pages(existing_pages)
 fetch_page_metadata_id(existing_pages, existing_metadata)
 fetch_category_metadata_id(existing_category_metadata)
@@ -87,7 +101,7 @@ if gptSweep == 'Y':
     for article in processed_articles:
         article['content'] = article['content'].replace("[ARTICLE END]", "")    
 
-print("Categories: ")
+print("\nCategories: ")
 render_categories(all_categories, all_category_ids, existing_category_metadata)
 
 activity_types = {item['activity'] for item in processed_articles}    
@@ -134,7 +148,7 @@ for activity in sorted(activity_types):
                     content += f"<a href=\"{URL}{activity_slug}/{i}/\">{j}</a>\n"
                 parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
                 parent_page_ids[activity] = parent_page_id
-
+                
 print("\nArticles: ")
 with ThreadPoolExecutor(max_workers=5) as executor:
     futures = {executor.submit(create_child_page_concurrently, article, existing_metadata, parent_page_ids, gptSweep): article for article in processed_articles}
