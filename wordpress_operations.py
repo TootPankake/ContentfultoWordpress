@@ -32,6 +32,36 @@ def fetch_page_metadata_id(existing_pages, existing_metadata):
             if result:
                 existing_metadata.append(result)
 
+def fetch_all_posts(existing_posts):
+    def fetch_post_concurrently(post_number):
+        response = requests.get(f"{URL}wp-json/wp/v2/posts", params={'per_page': 100, 'page': post_number}, auth=AUTH, timeout = 30)
+        return response.json() if response.status_code == 200 else []
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(fetch_post_concurrently, i) for i in range(1, 10)] 
+        for future in as_completed(futures):
+            existing_posts.extend(future.result())
+
+def fetch_post_metadata_id(existing_posts, existing_post_metadata):
+    def fetch_post_metadata_concurrently(post):
+        post_id = post['id']
+        meta_response = requests.get(f'{URL}/wp-json/wp/v2/posts/{post_id}', auth=AUTH, timeout = 30)
+        if meta_response.status_code == 200:
+            meta_data = meta_response.json().get('meta', {})
+            metadata_id = meta_data.get('_metadata_id', None)
+            metadata_title = meta_data.get('title', None)
+            metadata_content = meta_data.get('content', None)
+            if metadata_id:
+                return {'content': metadata_content, 'title': metadata_title, 'id': post_id, 'metadata_id': metadata_id}
+        return None
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(fetch_post_metadata_concurrently, post) for post in existing_posts]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                existing_post_metadata.append(result)
+
 def fetch_category_metadata_id(existing_category_metadata):
     page = 1
     while True:
@@ -49,6 +79,23 @@ def fetch_category_metadata_id(existing_category_metadata):
         
         page += 1  # Pagination required to obtain more than 10 entries from WP
 
+def fetch_tag_metadata_id(existing_tag_metadata):
+    page = 1
+    while True:
+        response = requests.get(f"{URL}/wp-json/wp/v2/tags", params={'per_page': 20, 'page': page}, auth=AUTH, timeout = 30)
+        tags = response.json()
+        
+        if not tags:
+            break
+
+        for tag in tags:
+            description = tag.get('description', '')  # Fetch the description field
+            existing_tag_metadata.append({'id': tag['id'], 'description': description})
+            if not description:
+                print(f"Tag ID: {tag['id']} has no description.")
+        
+        page += 1  # Increment the page number for pagination
+        
 def create_category(title, description, slug, metadata_id, existing_category_metadata):
     for item in existing_category_metadata:
         if metadata_id == item['metadata_id']:
@@ -83,7 +130,41 @@ def create_category(title, description, slug, metadata_id, existing_category_met
         print(f'Failed to create {title}: {response.status_code}')
         print(response.json())
     return 
-    
+
+def create_tag(title, slug, metadata_id, existing_tag_metadata):
+    for item in existing_tag_metadata:
+        if metadata_id == item['description']:
+            tag_id = item['id']
+            tag_data = {
+                'name': title,
+                'slug': slug,
+                'description': metadata_id,
+            }
+            response = requests.put(f"{URL}/wp-json/wp/v2/tags/{tag_id}", json=tag_data, auth=AUTH)
+            if response.status_code in [200, 201]:
+                print(f"Updated --> {title}")
+                return tag_id
+            else:
+                print(f"Failed to update {title}: {response.status_code}")
+                print(response.json())
+            return
+
+    # If the tag does not exist, create a new one
+    tag_data = {
+        'name': title,
+        'slug': slug,
+        'description': metadata_id,
+    }
+    response = requests.post(f"{URL}/wp-json/wp/v2/tags", json=tag_data, auth=AUTH)
+    if response.status_code == 201:
+        tag_id = response.json().get('id')
+        print(f"Created --> {title}")
+        return tag_id
+    else:
+        print(f"Failed to create {title}: {response.status_code}")
+        print(response.json())
+    return
+
 def create_parent_page(title, description, slug, metadata_id, category_ids, existing_metadata):
     for item in existing_metadata:
         if metadata_id == item['metadata_id']:
@@ -96,8 +177,6 @@ def create_parent_page(title, description, slug, metadata_id, category_ids, exis
                     'content': description,
                     'slug': slug,
                     'categories': category_ids,
-                    'template': "elementor_canvas"
-
                 }
                 response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
                 if response.status_code in [200,201]:
@@ -117,8 +196,6 @@ def create_parent_page(title, description, slug, metadata_id, category_ids, exis
         'categories': category_ids,
         'slug': slug,
         'status': 'publish',
-        'template': "elementor_canvas"
-
     }
 
     response = requests.post(f"{URL}wp-json/wp/v2/pages", json=page_data, auth=AUTH)
@@ -145,7 +222,7 @@ def create_parent_page(title, description, slug, metadata_id, category_ids, exis
         print(response.json())
     return
 
-def create_child_page(article, parent_id, existing_metadata, gptSweep):
+def create_child_page(article, existing_post_metadata, barrier_tag, tag_id, gptSweep):
     article_title = article['title']
     article_description = article['content']
     article_slug = article['slug']
@@ -155,13 +232,12 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
         print(f"Warning: Article '{article_title}' has empty content.")
         return
 
-    for item in existing_metadata:
+    for item in existing_post_metadata:
         if metadata_id == item['metadata_id']:
-            #print(f"{metadata_id} found")
             page_id = item['id']
-            
+             
             if gptSweep != 'Y':
-                url = f"{URL}wp-json/wp/v2/pages/{page_id}"
+                url = f"{URL}wp-json/wp/v2/posts/{page_id}"
                 response = requests.get(url, auth=AUTH)
                 if response.status_code == 200:
                     page_data = response.json()
@@ -174,11 +250,11 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
                 'title': article_title,
                 'content': article_description,
                 'slug': article_slug,
-                'template': "elementor_canvas",
-                'parent': parent_id,
+                'tags': [tag_id, barrier_tag],
+                #'parent': parent_id,
             }
             found = True
-            response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
+            response = requests.post(f"{URL}wp-json/wp/v2/posts/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
             if response.status_code == 200:
                 print(f"updated --> {article_title}")
             else:
@@ -193,11 +269,11 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
         'content': article_description,
         'slug': article_slug,
         'status': 'publish',
-        'template': "elementor_canvas",
-        'parent': parent_id,
+        'tags': [tag_id, barrier_tag],
+        #'parent': parent_id,
     }
 
-    response = requests.post(f"{URL}wp-json/wp/v2/pages", json=page_data, auth=AUTH)
+    response = requests.post(f"{URL}wp-json/wp/v2/posts", json=page_data, auth=AUTH)
 
     # Check if the page creation was successful
     if response.status_code == 201:
@@ -209,7 +285,7 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
             }
         }
 
-        update_meta_response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=meta_data, auth=AUTH)
+        update_meta_response = requests.post(f"{URL}wp-json/wp/v2/posts/{page_id}".format(page_id=page_id), json=meta_data, auth=AUTH)
         if update_meta_response.status_code == 200:
             return #print('Metadata updated successfully')
         else:
@@ -219,8 +295,9 @@ def create_child_page(article, parent_id, existing_metadata, gptSweep):
         print(f"Failed to create page: {response.status_code}")
         print(response.json()) 
 
-def create_child_page_concurrently(article, existing_metadata, parent_page_ids, gptSweep):
+def create_child_page_concurrently(article, existing_metadata, barrier_tag, tag_ids, gptSweep):
     if article['has_activities_and_barriers']:
         activity = article['activity']
-        parent_id = parent_page_ids.get(activity)  # Get the parent page ID
-    create_child_page(article, parent_id, existing_metadata, gptSweep)   
+        #parent_id = parent_page_ids.get(activity)  # Get the parent page ID
+        tag_id = tag_ids.get(activity)
+    create_child_page(article, existing_metadata, barrier_tag, tag_id, gptSweep)   

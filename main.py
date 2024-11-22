@@ -6,24 +6,11 @@ from datetime import datetime
 from pymongo.server_api import ServerApi
 from pymongo.mongo_client import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT
+from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT, AUTH
 from article_processing import process_article
 from contentful_data import fetch_contentful_data, render_articles, render_activities, render_categories
-from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_category_metadata_id,
-                                  create_parent_page, create_child_page, create_child_page_concurrently)
-
-# singleTest = input("Single test?\n").strip().upper()
-# if singleTest == 'Y':
-#     article = {}
-#     article['title'] = "AAA Test Elementor Custom"
-#     article['content'] = "This is the content of the article."
-#     article['slug'] = "lego-slug"
-#     article['id'] = "0451"
-#     parent_id = 39314
-#     existing_metadata = []
-#     gptSweep = 'N'
-#     create_child_page(article, parent_id, existing_metadata, gptSweep)   
-#     #sys.exit()
+from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_all_posts, fetch_post_metadata_id ,fetch_category_metadata_id,
+                                  create_parent_page, create_tag, create_child_page_concurrently, fetch_tag_metadata_id)
 
 # MongoDB initialization for access date storage
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
@@ -58,18 +45,23 @@ else:
 limit = 25
 all_category_ids = []
 existing_pages = []
+existing_posts = []
 activity_slugs = []
 activity_data, article_data = [], []
-existing_metadata, existing_category_metadata = [], []
+existing_metadata, existing_post_metadata, existing_tag_metadata, existing_category_metadata = [], [], [], []
 all_categories, all_activities, all_articles = [], [], []
 skip1 = skip2 = 0
-skip3 = 5
+skip3 = 0 # set to 5 for less articles, must set limit to 5 in _contentful_data.py too
 
 print("\nFetching metadata entry ID's")
 fetch_all_pages(existing_pages)
 fetch_page_metadata_id(existing_pages, existing_metadata)
+fetch_all_posts(existing_posts)
+fetch_tag_metadata_id(existing_tag_metadata)
+fetch_post_metadata_id(existing_posts, existing_post_metadata)
 fetch_category_metadata_id(existing_category_metadata)
 
+barrier_tag = create_tag("Barrier Article", "barrier-articles", "0451", existing_tag_metadata)
 print("Fetching contentful data")
 all_categories, all_activities, all_articles = fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client)
 
@@ -107,6 +99,7 @@ render_categories(all_categories, all_category_ids, existing_category_metadata)
 activity_types = {item['activity'] for item in processed_articles}    
 parent_pages = {}
 parent_page_ids = {}
+tag_ids = {}
 body = ""
 
 print("\nActivities: ")
@@ -120,8 +113,6 @@ for activity in sorted(activity_types):
 
         if title == activity:
             articles = entry.fields().get('articles', [])
-            articles_title_list = [article.fields().get('title') for article in articles]
-            articles_slug_list = [article.fields().get('slug') for article in articles]
             categories_title_list = [category.fields().get('title') for category in categories]
             categories_slug_list = [category.fields().get('slug') for category in categories]
             categories_id_list = [category.sys.get('id') for category in categories]
@@ -134,24 +125,21 @@ for activity in sorted(activity_types):
             category_id_dict = {item['meta_data_id']: item['id'] for item in all_category_ids} # dictionary to look through category id list
             category_list = [category_id_dict[j] for j in categories_id_list if j in category_id_dict]
 
-            
             if content:
                 content = RENDERER.render(content)
-                content += "\nArticles: \n"
-                for i, j in zip(articles_slug_list, articles_title_list):
-                    content += f"<a href=\"{URL}{activity_slug}/{i}/\">{j}</a>\n"
-                parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
-                parent_page_ids[activity] = parent_page_id
+                #parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
+                tag_id = create_tag(activity, activity_slug, activity_id, existing_tag_metadata)
+                #parent_page_ids[activity] = parent_page_id
+                tag_ids[activity] = tag_id
             if not content:
-                content = "\nArticles: \n"
-                for i, j in zip(articles_slug_list, articles_title_list):
-                    content += f"<a href=\"{URL}{activity_slug}/{i}/\">{j}</a>\n"
-                parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
-                parent_page_ids[activity] = parent_page_id
+                #parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
+                tag_id = create_tag(activity, activity_slug, activity_id, existing_metadata)
+                #parent_page_ids[activity] = parent_page_id
+                tag_ids[activity] = tag_id
                 
 print("\nArticles: ")
 with ThreadPoolExecutor(max_workers=5) as executor:
-    futures = {executor.submit(create_child_page_concurrently, article, existing_metadata, parent_page_ids, gptSweep): article for article in processed_articles}
+    futures = {executor.submit(create_child_page_concurrently, article, existing_post_metadata, barrier_tag, tag_ids, gptSweep): article for article in processed_articles}
     for future in as_completed(futures):
         article = futures[future]
         try:
