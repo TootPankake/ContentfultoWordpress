@@ -1,5 +1,5 @@
 from wordpress_operations import create_category
-max_articles = 1000
+
 def fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client):
     all_categories, all_activities, all_articles = [], [], []
     while True: # Fetch categories
@@ -33,11 +33,13 @@ def fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_thres
             'limit': limit,
             'skip': skip3,
             'order': '-sys.createdAt',
-            'sys.updatedAt[gte]': date_threshold_articles
+            'sys.updatedAt[gte]': date_threshold_articles,
+            'fields.articleType': 'Activity Barrier Navigator'
+
         })
         all_articles.extend(articles)
         skip3 += limit 
-        if len(articles) < limit: #or skip3 >= 5:  # Break the loop if no more articles are fetched
+        if len(articles) < limit:# or skip3 >= 5:  # Break the loop if no more articles are fetched
             break 
     return all_categories, all_activities, all_articles
 
@@ -47,6 +49,7 @@ def render_articles(all_articles, renderer, article_data):
         article_title = entry.fields().get('title')
         article_description = entry.fields().get('content')
         article_id = entry.sys.get('id')
+        
         if article_description:
             try:
                 rendered_description = renderer.render(article_description)
@@ -82,7 +85,7 @@ def render_activities(all_activities, renderer, activity_data, activity_slugs):
                 'id': activity_id,
                 'slug': activity_slug,
                 'title': activity_title,
-                'description': rendered_description
+                'description': rendered_description,
             })
 def render_categories(all_categories, all_category_ids, existing_category_metadata):
     for entry in all_categories:

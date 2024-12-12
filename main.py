@@ -9,8 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import SPACE_ID, ACCESS_TOKEN, URL, URI, RENDERER, MODEL, ENVIRONMENT, AUTH
 from article_processing import process_article
 from contentful_data import fetch_contentful_data, render_articles, render_activities, render_categories
-from wordpress_operations import (fetch_all_pages, fetch_page_metadata_id, fetch_all_posts, fetch_post_metadata_id ,fetch_category_metadata_id,
-                                  create_parent_page, create_tag, create_child_page_concurrently, fetch_tag_metadata_id)
+from wordpress_operations import (fetch_all_pages_posts, fetch_metadata_id ,fetch_all_tags_categories,
+                                  create_parent_page, create_tag, create_child_page_concurrently)
 
 # MongoDB initialization for access date storage
 clientDB = MongoClient(URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
@@ -47,19 +47,16 @@ all_category_ids = []
 existing_pages = []
 existing_posts = []
 activity_slugs = []
+locked_titles = []
 activity_data, article_data = [], []
 existing_metadata, existing_post_metadata, existing_tag_metadata, existing_category_metadata = [], [], [], []
 all_categories, all_activities, all_articles = [], [], []
-skip1 = skip2 = 0
-skip3 = 0 # set to 5 for less articles, must set limit to 5 in _contentful_data.py too
+skip1 = skip2 = skip3 = 0
 
 print("\nFetching metadata entry ID's")
-fetch_all_pages(existing_pages)
-fetch_page_metadata_id(existing_pages, existing_metadata)
-fetch_all_posts(existing_posts)
-fetch_tag_metadata_id(existing_tag_metadata)
-fetch_post_metadata_id(existing_posts, existing_post_metadata)
-fetch_category_metadata_id(existing_category_metadata)
+fetch_all_pages_posts(existing_pages, existing_posts)
+fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existing_post_metadata)
+fetch_all_tags_categories(existing_tag_metadata, existing_category_metadata)
 
 barrier_tag = create_tag("Barrier Article", "barrier-articles", "0451", existing_tag_metadata)
 print("Fetching contentful data")
@@ -102,6 +99,20 @@ parent_page_ids = {}
 tag_ids = {}
 body = ""
 
+# Parallelize page and tag creation
+def create_parent_page_and_tag(activity, content, activity_slug, image_url, activity_id, category_list, existing_metadata, existing_tag_metadata):
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_parent_page = executor.submit(
+            create_parent_page, activity, content, activity_slug, image_url, activity_id, category_list, existing_metadata
+        )
+        future_tag = executor.submit(
+            create_tag, activity, activity_slug, activity_id, existing_tag_metadata
+        )
+        # Wait for both tasks to complete
+        parent_page_id = future_parent_page.result()
+        tag_id = future_tag.result()
+    return parent_page_id, tag_id
+
 print("\nActivities: ")
 for activity in sorted(activity_types):
     for entry in all_activities:
@@ -110,6 +121,11 @@ for activity in sorted(activity_types):
         categories = entry.fields().get('categories', [])
         activity_slug = entry.fields().get('slug', [])
         activity_id = entry.sys.get('id')
+        hero_image = entry.fields().get('hero_image')
+        hero_image_url = None
+
+        if hero_image: # Check if hero_image is a valid Asset object
+            image_url = f"https:{hero_image.fields().get('file').get('url')}"
 
         if title == activity:
             articles = entry.fields().get('articles', [])
@@ -127,16 +143,15 @@ for activity in sorted(activity_types):
 
             if content:
                 content = RENDERER.render(content)
-                #parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
-                tag_id = create_tag(activity, activity_slug, activity_id, existing_tag_metadata)
-                #parent_page_ids[activity] = parent_page_id
-                tag_ids[activity] = tag_id
-            if not content:
-                #parent_page_id = create_parent_page(activity, content, activity_slug, activity_id, category_list, existing_metadata)
-                tag_id = create_tag(activity, activity_slug, activity_id, existing_metadata)
-                #parent_page_ids[activity] = parent_page_id
-                tag_ids[activity] = tag_id
-                
+
+            # Call the parallelized function
+            parent_page_id, tag_id = create_parent_page_and_tag(
+                activity, content, activity_slug, image_url, activity_id, category_list, existing_metadata, existing_tag_metadata
+            )
+            
+            parent_page_ids[activity] = parent_page_id
+            tag_ids[activity] = tag_id
+
 print("\nArticles: ")
 with ThreadPoolExecutor(max_workers=5) as executor:
     futures = {executor.submit(create_child_page_concurrently, article, existing_post_metadata, barrier_tag, tag_ids, gptSweep): article for article in processed_articles}

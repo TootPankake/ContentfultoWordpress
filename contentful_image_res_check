@@ -1,0 +1,52 @@
+import sys
+import contentful
+import requests
+from PIL import Image
+from io import BytesIO
+from datetime import datetime
+from contentful_data import fetch_contentful_data
+from config import SPACE_ID, ACCESS_TOKEN, ENVIRONMENT, MANAGEMENT_TOKEN
+from contentful_management import Client as ManagementClient  # Content Management API
+
+
+try:
+    client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  
+                            environment=ENVIRONMENT,
+                            max_include_resolution_depth=1)
+    print("Successfully connected to Contentful client.")
+    management_client = ManagementClient(MANAGEMENT_TOKEN)
+
+except contentful.errors.NotFoundError as e:
+    print(f"Error: {e}")
+
+date_threshold = datetime(2024, 1, 1).isoformat()
+date_threshold_categories = datetime(2023, 1, 1).isoformat()  
+date_threshold_articles = datetime(2023, 1, 1).isoformat()
+limit = 25
+all_categories, all_activities, all_articles = [], [], []
+skip1 = skip2 = skip3 = 0
+all_categories, all_activities, all_articles = fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client)
+resolution = []
+for entry in all_activities:
+    activity_slug = entry.fields().get('slug')  
+    activity_title = entry.fields().get('title')
+    activity_description = entry.fields().get('content')
+    hero_image = entry.fields().get('hero_image')
+    hero_image_url = None
+    if hero_image: # Check if hero_image is a valid Asset object
+        image_url = f"https:{hero_image.fields().get('file').get('url')}"
+        response = requests.get(image_url)
+        # Ensure the request was successful
+        if response.status_code == 200:
+            # Load the image into PIL
+            img = Image.open(BytesIO(response.content))
+            
+            # Get image resolution
+            width, height = img.size
+            pixels = width*height
+            resolution.append({"Activity": activity_title, "Resolution": pixels})
+sorted_activities = sorted(resolution, key=lambda x: x['Resolution'])
+for activity in sorted_activities:
+    if (activity["Resolution"] < 500000):
+        with open("HeroImageLowResolutionList.md", 'a') as file:
+                file.write(f"""{activity["Activity"]} --> {activity["Resolution"]}\n""")
