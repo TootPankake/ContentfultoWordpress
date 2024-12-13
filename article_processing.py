@@ -1,5 +1,6 @@
 import openai
 import time
+import requests
 from config import URL, OPENAI_API_TOKEN, MODEL, RENDERER
 
 openai.api_key = OPENAI_API_TOKEN
@@ -63,7 +64,7 @@ def generate_article_links(title, article, slug_list):
     print(f"Article link completed: {title}")
     return content
 
-def process_article(entry, gptSweep, json_slug_data):
+def process_article(entry, gptSweep, json_slug_data, existing_post_metadata):
     slug = entry.fields().get('slug')  
     title = entry.fields().get('title')
     content = entry.fields().get('content')
@@ -80,7 +81,15 @@ def process_article(entry, gptSweep, json_slug_data):
     if gptSweep == 'Y':
         ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
     else:
-        ai_updated_article = RENDERER.render(content) 
+        ai_updated_article = RENDERER.render(content)
+        for i in existing_post_metadata:
+            if id == i['metadata_id']:
+                response = requests.get(f"{URL}/wp-json/wp/v2/posts/{i['id']}")
+                content = response.json()
+                content = content['content']['rendered']
+
+        if content == "":
+            ai_updated_article = content
     return {
         'title': title,
         'id': id,

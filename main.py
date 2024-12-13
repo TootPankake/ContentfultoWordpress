@@ -58,6 +58,9 @@ fetch_all_pages_posts(existing_pages, existing_posts)
 fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existing_post_metadata)
 fetch_all_tags_categories(existing_tag_metadata, existing_category_metadata)
 
+print(len(existing_post_metadata))
+print(len(existing_metadata))
+print(len(existing_posts))
 barrier_tag = create_tag("Barrier Article", "barrier-articles", "0451", existing_tag_metadata)
 print("Fetching contentful data")
 all_categories, all_activities, all_articles = fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client)
@@ -74,7 +77,7 @@ json_activity_data = json.dumps(activity_data, indent=4)
 print(f"Compiling {MODEL} prompts\n")
 processed_articles = []
 with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt execution
-    futures = {executor.submit(process_article, entry, gptSweep, json_slug_data): entry for entry in all_articles}
+    futures = {executor.submit(process_article, entry, gptSweep, json_slug_data, existing_post_metadata): entry for entry in all_articles}
 
     for future in as_completed(futures):
         article = futures[future]
@@ -99,7 +102,6 @@ parent_page_ids = {}
 tag_ids = {}
 body = ""
 
-# Parallelize page and tag creation
 def create_parent_page_and_tag(activity, content, activity_slug, image_url, activity_id, category_list, existing_metadata, existing_tag_metadata):
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_parent_page = executor.submit(

@@ -1,30 +1,102 @@
 import requests
+import time
 from config import URL, AUTH
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def fetch_all_pages_posts(existing_pages, existing_posts):
+    # Helper function to fetch pages
     def fetch_page_concurrently(page_number):
-        response = requests.get(f"{URL}wp-json/wp/v2/pages", params={'per_page': 100, 'page': page_number}, auth=AUTH, timeout = 30)
-        return response.json() if response.status_code == 200 else []
-    def fetch_post_concurrently(page_number):
-        response = requests.get(f"{URL}wp-json/wp/v2/posts", params={'per_page': 100, 'page': page_number}, auth=AUTH, timeout = 30)
+        response = requests.get(
+            f"{URL}wp-json/wp/v2/pages",
+            params={'per_page': 100, 'page': page_number},
+            auth=AUTH,
+            timeout=30
+        )
         return response.json() if response.status_code == 200 else []
 
+    # Helper function to fetch posts
+    def fetch_post_concurrently(page_number):
+        response = requests.get(
+            f"{URL}wp-json/wp/v2/posts",
+            params={'per_page': 100, 'page': page_number},
+            auth=AUTH,
+            timeout=30
+        )
+        if response.status_code == 200:
+            return response.json(), int(response.headers.get('X-WP-TotalPages', 1))
+        return [], 1
+
+    # Fetch the first page of posts to determine total pages
+    first_response = requests.get(
+        f"{URL}wp-json/wp/v2/posts",
+        params={'per_page': 100, 'page': 1},
+        auth=AUTH,
+        timeout=30
+    )
+
+    if first_response.status_code != 200:
+        print("Failed to fetch posts.")
+        return
+
+    # Parse initial response and total pages
+    first_page_posts = first_response.json()
+    total_pages = int(first_response.headers.get('X-WP-TotalPages', 1))
+    existing_posts.extend(first_page_posts)
+
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_page_concurrently, i) for i in range(1, 10)] 
+        futures = [
+            executor.submit(fetch_post_concurrently, i)
+            for i in range(2, total_pages + 1)
+        ]
         for future in as_completed(futures):
-            existing_pages.extend(future.result())
+            posts, _ = future.result()
+            existing_posts.extend(posts)
+
+    # Repeat similar process for pages
+    first_response_pages = requests.get(
+        f"{URL}wp-json/wp/v2/pages",
+        params={'per_page': 100, 'page': 1},
+        auth=AUTH,
+        timeout=30
+    )
+
+    if first_response_pages.status_code != 200:
+        print("Failed to fetch pages.")
+        return
+
+    first_page_pages = first_response_pages.json()
+    total_pages_pages = int(first_response_pages.headers.get('X-WP-TotalPages', 1))
+    existing_pages.extend(first_page_pages)
+
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_post_concurrently, i) for i in range(1, 10)] 
+        futures = [
+            executor.submit(fetch_page_concurrently, i)
+            for i in range(2, total_pages_pages + 1)
+        ]
         for future in as_completed(futures):
-            existing_posts.extend(future.result())
+            pages = future.result()
+            existing_pages.extend(pages)
 
 def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existing_post_metadata):
+    def fetch_with_retries(url, retries=3, delay=2):
+        for attempt in range(retries):
+            try:
+                response = requests.get(url, auth=AUTH, timeout=30)
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    print(f"Failed to fetch {url} - Status code: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching {url}: {e}")
+            time.sleep(delay)  # Retry after a delay
+        return None  # Return None if all retries fail
+
     def fetch_page_concurrently(page):
         page_id = page['id']
-        meta_response = requests.get(f'{URL}/wp-json/wp/v2/pages/{page_id}', auth=AUTH, timeout = 30)
-        if meta_response.status_code == 200:
-            meta_data = meta_response.json().get('meta', {})
+        url = f'{URL}/wp-json/wp/v2/pages/{page_id}'
+        meta_response = fetch_with_retries(url)
+        if meta_response:
+            meta_data = meta_response.get('meta', {})
             metadata_id = meta_data.get('_metadata_id', None)
             metadata_title = meta_data.get('title', None)
             metadata_content = meta_data.get('content', None)
@@ -32,11 +104,13 @@ def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existin
             if metadata_id:
                 return {'content': metadata_content, 'title': metadata_title, 'id': page_id, 'metadata_id': metadata_id, 'locked': metadata_locked}
         return None
+
     def fetch_post_concurrently(post):
         post_id = post['id']
-        meta_response = requests.get(f'{URL}/wp-json/wp/v2/posts/{post_id}', auth=AUTH, timeout = 30)
-        if meta_response.status_code == 200:
-            meta_data = meta_response.json().get('meta', {})
+        url = f'{URL}/wp-json/wp/v2/posts/{post_id}'
+        meta_response = fetch_with_retries(url)
+        if meta_response:
+            meta_data = meta_response.get('meta', {})
             metadata_id = meta_data.get('_metadata_id', None)
             metadata_title = meta_data.get('title', None)
             metadata_content = meta_data.get('content', None)
@@ -44,19 +118,30 @@ def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existin
             if metadata_id:
                 return {'content': metadata_content, 'title': metadata_title, 'id': post_id, 'metadata_id': metadata_id, 'locked': metadata_locked}
         return None
-    
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_page_concurrently, page) for page in existing_pages]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                existing_metadata.append(result)
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_post_concurrently, post) for post in existing_posts]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                existing_post_metadata.append(result)
+
+
+    for batch in range(0, len(existing_pages), 50):  # Process 50 pages at a time
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [
+                executor.submit(fetch_page_concurrently, page)
+                for page in existing_pages[batch:batch + 50]
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    existing_metadata.append(result)
+    time.sleep(5)  # Pause between batches
+    for batch in range(0, len(existing_posts), 50):  # Process 50 pages at a time
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [
+                executor.submit(fetch_post_concurrently, page)
+                for page in existing_posts[batch:batch + 50]
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    existing_post_metadata.append(result)
+        time.sleep(5)  # Pause between batches
 
 def fetch_all_tags_categories(existing_tag_metadata, existing_category_metadata):
     page = 1
@@ -229,7 +314,10 @@ def create_child_page(article, existing_post_metadata, barrier_tag, tag_id, gptS
 
     for item in existing_post_metadata:
         if metadata_id == item['metadata_id']:
-            #print(item['locked'])
+            if item['locked'] == "1":
+                response = requests.get(f"{URL}/wp-json/wp/v2/posts/{item['id']}")
+                article_title = response.json()
+                article_title = article_title['title']['rendered']
             page_id = item['id']
         
             if gptSweep != 'Y':
@@ -248,7 +336,6 @@ def create_child_page(article, existing_post_metadata, barrier_tag, tag_id, gptS
                 'slug': article_slug,
                 'tags': [tag_id, barrier_tag],
             }
-            found = True
             response = requests.post(f"{URL}wp-json/wp/v2/posts/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
             if response.status_code == 200:
                 print(f"updated --> {article_title}")
