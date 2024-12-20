@@ -51,7 +51,8 @@ locked_titles = []
 activity_data, article_data = [], []
 existing_metadata, existing_post_metadata, existing_tag_metadata, existing_category_metadata = [], [], [], []
 all_categories, all_activities, all_articles = [], [], []
-skip1 = skip2 = skip3 = 0
+skip1 = skip2 = 0
+skip3 = 0
 
 print("\nFetching metadata entry ID's")
 fetch_all_pages_posts(existing_pages, existing_posts)
@@ -64,7 +65,7 @@ print(len(existing_posts))
 barrier_tag = create_tag("Barrier Article", "barrier-articles", "0451", existing_tag_metadata)
 print("Fetching contentful data")
 all_categories, all_activities, all_articles = fetch_contentful_data(limit, skip1, skip2, skip3, date_threshold, date_threshold_articles, date_threshold_categories, client)
-
+print(len(all_articles))
 print("Rendering contentful data")
 render_articles(all_articles, RENDERER, article_data)
 render_activities(all_activities, RENDERER, activity_data, activity_slugs)
@@ -154,6 +155,7 @@ for activity in sorted(activity_types):
             parent_page_ids[activity] = parent_page_id
             tag_ids[activity] = tag_id
 
+print(len(processed_articles))
 print("\nArticles: ")
 with ThreadPoolExecutor(max_workers=5) as executor:
     futures = {executor.submit(create_child_page_concurrently, article, existing_post_metadata, barrier_tag, tag_ids, gptSweep): article for article in processed_articles}

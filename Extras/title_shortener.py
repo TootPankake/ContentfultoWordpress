@@ -1,11 +1,12 @@
 import requests
+import sys
+from contentful_management import Client
 import contentful
 import openai
-from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN
+from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN, ENVIRONMENT
 import pandas as pd
-replace_titles = input("Do you want to publish all changes? (y/n): ").strip().upper()
-moreQueries = input("Do you want the option to doublecheck the results? (y/n): ").strip().upper()
 
+replace_titles = 'Y'#input("Do you want to publish all changes? (y/n): ").strip().upper()
 
 # Set up your API keys
 contentful_space_id = SPACE_ID
@@ -15,25 +16,35 @@ openai_api_key = OPENAI_API_TOKEN
 
 try:
     client = contentful.Client(SPACE_ID, ACCESS_TOKEN,  
-                               environment='master',
+                               environment=ENVIRONMENT,
                                max_include_resolution_depth=1)
+    management_client = Client(MANAGEMENT_TOKEN)
+
     print("Successfully connected to Contentful client.")
 except contentful.errors.NotFoundError as e:
     print(f"Error: {e}")
 
 openai.api_key = OPENAI_API_TOKEN
-retry = 'N'
-# Fetch the most recent article from Contentful
+
 temperature = 0.9
 model = 'gpt-4o-mini'
 entries = []
-articles = client.entries({
-    'content_type': "article",
-    'order': '-sys.createdAt',  # Order by creation date descending
-    'skip': 0, # skip the an arbitrary amount of entries first
-    'limit': 100,  # Fetch only the most recent entry
-})
-entries.extend(articles)
+skip = 0
+limit = 25
+
+while True:  # Fetch articles 
+        articles = client.entries({  
+            'content_type': 'article',
+            'limit': limit,
+            'skip': skip,
+            'order': '-sys.updatedAt',
+            'fields.articleType': 'Activity Barrier Navigator'
+
+        })
+        entries.extend(articles)
+        skip += limit 
+        if len(articles) < limit:
+            break 
 
 def shorten_title(title, barrier): 
     title = title.replace(":", "")     
@@ -43,11 +54,6 @@ Some example goal titles: No Time? Start Roller Derby with This Beginner's Guide
 Easily Understand Badminton Terms with This Beginner's Guide, Decoding Tae Bo Terms for Beginners Who Feel Lost, Boost Your Confidence and Start Kitesurfing Today, 
 Play Pickleball with Confidence Even If You're Self-Conscious, Find Space to Start Stand Up Paddle Boarding Today, Start Zumba Today Even If You Feel Inflexible
 """ 
-    if title == "<title>" and barrier == "<barrier>":
-        with open("PromptTitleTesting.md", 'a') as file:
-            file.write("\nPrompt(temperature - " + str(temperature) + ", model - " + model + "):\n" + prompt + "\nResults:")
-        print("\nPrompt (temperature - " + str(temperature) + ", model - " + model + "):\n" + prompt + "\nResults:")
-        return
     response = openai.ChatCompletion.create(
         model=model,
         temperature=temperature,
@@ -59,7 +65,6 @@ Play Pickleball with Confidence Even If You're Self-Conscious, Find Space to Sta
     content = response['choices'][0]['message']['content']
     return content
 
-shorten_title("<title>","<barrier>") # show what the prompt is for comparison
 data = []
 
 for entry in entries:
@@ -74,33 +79,10 @@ for entry in entries:
     
     if article_type == "Activity Barrier Navigator":
         if title:
-            shortened_title = shorten_title(title, barrier)
             entry_id = entry.sys['id']
-            print(f"""{title} --> \n{shortened_title}""")
-            if moreQueries == 'Y':
-                retry = input("Adjust (y) or Continue (n): ").strip().upper()
-            print("")
-            if retry == 'Y':
-                list = []
-                for i in range(10):
-                    shortened_title = shorten_title(title, barrier)
-                    print(str(i+1) + ". " + shortened_title)
-                    list.append(shortened_title)
-                choice = input("Select your favorite of the 10 or enter (C) for custom entry: ").strip().upper()
-                if choice == "C": 
-                    shortened_title = input("Type out custom title: ")
-                else: 
-                    shortened_title = list[int(choice)-1]
-                print(f"""\n{title} -->\n{shortened_title}\n\n""")
-                with open("PromptTitleTesting.md", 'a') as file:
-                    file.write()#########TOTODOOD)
-                    file.write(f"""{title} -->\n{shortened_title}\n\n""")
-            else: 
-                #with open("PromptTitleTesting.md", 'a') as file:
-                #    file.write(f"""{title} -->\n{shortened_title}\n\n""")
-                data.append({"Activity": activity, "Title": title, "Shortened Title": shortened_title})
+
                 
-            entry_details_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
+            entry_details_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/{ENVIRONMENT}/entries/{entry_id}"
             entry_details_headers = {
                 'Authorization': f'Bearer {contentful_management_token}',
             }
@@ -111,23 +93,40 @@ for entry in entries:
                 entry_details = entry_details_response.json()
 
                 version = entry_details['sys']['version']
-
-                # Update only the title field, keeping other fields unchanged
-                entry_details['fields']['title']['en-US'] = shortened_title
-
+                
+            
                 # Send the full entry data with only the title modified
-                update_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}"
+                update_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/{ENVIRONMENT}/entries/{entry_id}"
                 update_headers = {
                     'Authorization': f'Bearer {contentful_management_token}',
                     'Content-Type': 'application/vnd.contentful.management.v1+json',
                     'X-Contentful-Version': str(version)
                 }
-                update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+                if "lockTitle" not in entry_details['fields']:
+                    shortened_title = shorten_title(title, barrier)
+                    print(f"""{title} --> \n{shortened_title}""")
+                    data.append({"Activity": activity, "Title": title, "Shortened Title": shortened_title})
+                    entry_details['fields']['title']['en-US'] = shortened_title
+                    entry_details['fields']['lockTitle'] = {}
+                    entry_details['fields']['lockTitle']['en-US'] = True  # Initialize to False
+                    update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+                elif(entry_details['fields']['lockTitle']['en-US'] == True):
+                    print("SKIP")
+                    continue
+                else:
+                    entry_details['fields']['lockTitle']['en-US'] = True  # Set 'Lock Title' to Locked (True)
+                    shortened_title = shorten_title(title, barrier)
+                    print(f"""{title} --> \n{shortened_title}""")
+                    data.append({"Activity": activity, "Title": title, "Shortened Title": shortened_title})
+                    entry_details['fields']['title']['en-US'] = shortened_title
+                    update_response = requests.put(update_url, headers=update_headers, json=entry_details)                   
+                
+
                 if update_response.status_code == 200:
-                    print(f"Successfully updated title for entry ID {entry_id}")
+                    #print(f"Successfully updated title for entry ID {entry_id}")
                     
                     # Auto-publish the updated entry
-                    publish_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/development/entries/{entry_id}/published"
+                    publish_url = f"https://api.contentful.com/spaces/{contentful_space_id}/environments/{ENVIRONMENT}/entries/{entry_id}/published"
                     publish_headers = {
                         'Authorization': f'Bearer {contentful_management_token}',
                         'X-Contentful-Version': str(version + 1)  # Increment version for publish request
@@ -135,17 +134,16 @@ for entry in entries:
                     
                     publish_response = requests.put(publish_url, headers=publish_headers)
                     if publish_response.status_code == 200:
-                        print(f"Successfully published entry ID {entry_id}")
+                        print(f"PUBLISHED")
                     else:
                         print(f"Failed to publish entry ID {entry_id}: {publish_response.status_code}, {publish_response.text}")
                 else:
                     print(f"Failed to update title for entry ID {entry_id}: {update_response.status_code}, {update_response.text}")
         else:
             print("Title not found for the entry.")
-        
 df = pd.DataFrame(data)
 
-# Save to an Excel file
-file_path = "TitleTesting.xlsx"
-df.to_excel(file_path, index=False, engine='xlsxwriter')
-print(f"Data written to {file_path}")
+# # Save to an Excel file
+# file_path = "TitleTesting.xlsx"
+# #df.to_excel(file_path, index=False, engine='xlsxwriter')
+# print(f"Data written to {file_path}")

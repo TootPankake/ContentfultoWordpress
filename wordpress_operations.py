@@ -130,7 +130,7 @@ def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existin
                 result = future.result()
                 if result:
                     existing_metadata.append(result)
-    time.sleep(5)  # Pause between batches
+    time.sleep(2)  # Pause between batches
     for batch in range(0, len(existing_posts), 50):  # Process 50 pages at a time
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [
@@ -141,7 +141,7 @@ def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existin
                 result = future.result()
                 if result:
                     existing_post_metadata.append(result)
-        time.sleep(5)  # Pause between batches
+        time.sleep(2)  # Pause between batches
 
 def fetch_all_tags_categories(existing_tag_metadata, existing_category_metadata):
     page = 1

@@ -85,11 +85,10 @@ def process_article(entry, gptSweep, json_slug_data, existing_post_metadata):
         for i in existing_post_metadata:
             if id == i['metadata_id']:
                 response = requests.get(f"{URL}/wp-json/wp/v2/posts/{i['id']}")
-                content = response.json()
-                content = content['content']['rendered']
-
-        if content == "":
-            ai_updated_article = content
+                temp = response.json()
+                temp = temp['content']['rendered']
+                ai_updated_article = temp
+                break
     return {
         'title': title,
         'id': id,
