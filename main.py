@@ -79,7 +79,6 @@ print(f"Compiling {MODEL} prompts\n")
 processed_articles = []
 with ThreadPoolExecutor(max_workers=10) as executor: # parallelization of prompt execution
     futures = {executor.submit(process_article, entry, gptSweep, json_slug_data, existing_post_metadata): entry for entry in all_articles}
-
     for future in as_completed(futures):
         article = futures[future]
         try:
