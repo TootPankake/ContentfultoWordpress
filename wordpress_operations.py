@@ -3,7 +3,7 @@ import time
 from config import URL, AUTH
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def fetch_all_pages_posts(existing_pages, existing_posts):
+def fetch_all_pages_and_posts(existing_wordpress_pages, existing_wordpress_posts):
     # Helper function to fetch pages
     def fetch_page_concurrently(page_number):
         response = requests.get(
@@ -41,7 +41,7 @@ def fetch_all_pages_posts(existing_pages, existing_posts):
     # Parse initial response and total pages
     first_page_posts = first_response.json()
     total_pages = int(first_response.headers.get('X-WP-TotalPages', 1))
-    existing_posts.extend(first_page_posts)
+    existing_wordpress_posts.extend(first_page_posts)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [
@@ -50,7 +50,7 @@ def fetch_all_pages_posts(existing_pages, existing_posts):
         ]
         for future in as_completed(futures):
             posts, _ = future.result()
-            existing_posts.extend(posts)
+            existing_wordpress_posts.extend(posts)
 
     # Repeat similar process for pages
     first_response_pages = requests.get(
@@ -66,7 +66,7 @@ def fetch_all_pages_posts(existing_pages, existing_posts):
 
     first_page_pages = first_response_pages.json()
     total_pages_pages = int(first_response_pages.headers.get('X-WP-TotalPages', 1))
-    existing_pages.extend(first_page_pages)
+    existing_wordpress_pages.extend(first_page_pages)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [
@@ -75,9 +75,9 @@ def fetch_all_pages_posts(existing_pages, existing_posts):
         ]
         for future in as_completed(futures):
             pages = future.result()
-            existing_pages.extend(pages)
+            existing_wordpress_pages.extend(pages)
 
-def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existing_post_metadata):
+def fetch_page_and_post_metadata_id(existing_wordpress_pages, existing_wordpress_posts, existing_page_metadata, existing_post_metadata):
     def fetch_with_retries(url, retries=3, delay=2):
         for attempt in range(retries):
             try:
@@ -120,30 +120,30 @@ def fetch_metadata_id(existing_pages, existing_posts, existing_metadata, existin
         return None
 
 
-    for batch in range(0, len(existing_pages), 50):  # Process 50 pages at a time
+    for batch in range(0, len(existing_wordpress_pages), 50):  # Process 50 pages at a time
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [
                 executor.submit(fetch_page_concurrently, page)
-                for page in existing_pages[batch:batch + 50]
+                for page in existing_wordpress_pages[batch:batch + 50]
             ]
             for future in as_completed(futures):
                 result = future.result()
                 if result:
-                    existing_metadata.append(result)
-    time.sleep(2)  # Pause between batches
-    for batch in range(0, len(existing_posts), 50):  # Process 50 pages at a time
+                    existing_page_metadata.append(result)
+    time.sleep(5)  # Pause between batches
+    for batch in range(0, len(existing_wordpress_posts), 50):  # Process 50 pages at a time
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [
                 executor.submit(fetch_post_concurrently, page)
-                for page in existing_posts[batch:batch + 50]
+                for page in existing_wordpress_posts[batch:batch + 50]
             ]
             for future in as_completed(futures):
                 result = future.result()
                 if result:
                     existing_post_metadata.append(result)
-        time.sleep(2)  # Pause between batches
+        time.sleep(5)  # Pause between batches
 
-def fetch_all_tags_categories(existing_tag_metadata, existing_category_metadata):
+def fetch_all_tags_and_categories(existing_tag_metadata, existing_category_metadata):
     page = 1
     while True:
         response = requests.get(f"{URL}/wp-json/wp/v2/tags", params={'per_page': 20, 'page': page}, auth=AUTH, timeout = 30)
@@ -210,6 +210,19 @@ def create_category(title, description, slug, metadata_id, existing_category_met
         print(response.json())
     return 
 
+def create_page_and_tag(title, description_full, activity_slug, image_url, activity_id, category_list, existing_page_metadata, existing_tag_metadata):
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_parent_page = executor.submit(
+            create_page, title, description_full, activity_slug, image_url, activity_id, category_list, existing_page_metadata
+        )
+        future_tag = executor.submit(
+            create_tag, title, activity_slug, activity_id, existing_tag_metadata
+        )
+        # Wait for both tasks to complete
+        parent_page_id = future_parent_page.result()
+        tag_id = future_tag.result()
+    return parent_page_id, tag_id
+
 def create_tag(title, slug, metadata_id, existing_tag_metadata):
     for item in existing_tag_metadata:
         if metadata_id == item['description']:
@@ -244,8 +257,8 @@ def create_tag(title, slug, metadata_id, existing_tag_metadata):
         print(response.json())
     return
 
-def create_parent_page(title, description, slug, image_url, metadata_id, category_ids, existing_metadata):
-    for item in existing_metadata:
+def create_page(title, description, slug, image_url, metadata_id, category_ids, existing_page_metadata):
+    for item in existing_page_metadata:
         if metadata_id == item['metadata_id']:
             page_id = item['id']
             
@@ -376,12 +389,12 @@ def create_child_page(article, existing_post_metadata, barrier_tag, tag_id, gptS
         print(f"Failed to create page: {response.status_code}")
         print(response.json()) 
 
-def create_child_page_concurrently(article, existing_metadata, barrier_tag, tag_ids, gptSweep):
+def create_child_page_concurrently(article, existing_page_metadata, barrier_tag, tag_ids, gptSweep):
     if article['has_activities_and_barriers']:
         activity = article['activity']
         #parent_id = parent_page_ids.get(activity)  # Get the parent page ID
         tag_id = tag_ids.get(activity)
-    create_child_page(article, existing_metadata, barrier_tag, tag_id, gptSweep)   
+    create_child_page(article, existing_page_metadata, barrier_tag, tag_id, gptSweep)   
 
 def set_fifu_image(post_id, image_url):
     # Set the featured image URL via the WordPress REST API
