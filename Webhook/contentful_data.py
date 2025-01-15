@@ -1,4 +1,3 @@
-from wordpress_operations import create_category
 from datetime import datetime
 
 def fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activities, client):
@@ -35,16 +34,4 @@ def render_activities(all_activities, activity_slugs):
     for entry in all_activities:
         activity_slug = entry.fields().get('slug')  
         activity_slugs.append(activity_slug)
-        
-def render_categories(all_categories, existing_wordpress_categories):
-    for entry in all_categories:
-        category_title = entry.fields().get('title')
-        category_description = entry.fields().get('description') # change to whatever we choose as the name for description
-        category_description = "" # for now it's empty
-        category_slug = entry.fields().get('slug')  
-        category_contentful_entry_id = entry.sys.get('id')
-        
-        category_type = entry.fields().get('category_type')
-        #if category_type == 'Activity':
-            #id_number = create_category(category_title, category_description, category_slug, category_contentful_entry_id, existing_wordpress_categories)
-            #all_category_ids.append({'id_number': id_number, 'contentful_entry_id': category_contentful_entry_id}) 
+    

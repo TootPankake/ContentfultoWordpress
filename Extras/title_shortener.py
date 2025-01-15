@@ -5,6 +5,7 @@ import contentful
 import openai
 from config import SPACE_ID, ACCESS_TOKEN, MANAGEMENT_TOKEN, OPENAI_API_TOKEN, ENVIRONMENT
 import pandas as pd
+import re
 
 replace_titles = 'Y'#input("Do you want to publish all changes? (y/n): ").strip().upper()
 
@@ -45,6 +46,14 @@ while True:  # Fetch articles
         skip += limit 
         if len(articles) < limit:
             break 
+
+# Function to generate a slug from a title
+def generate_slug(title):
+    slug = title.lower()
+    slug = re.sub(r'[^\w\s-]', '', slug)  # Remove special characters
+    slug = re.sub(r'\s+', '-', slug)      # Replace spaces with hyphens
+    slug = re.sub(r'-+', '-', slug)       # Remove multiple hyphens
+    return slug.strip('-')
 
 def shorten_title(title, barrier): 
     title = title.replace(":", "")     
@@ -108,13 +117,21 @@ for entry in entries:
                     data.append({"Activity": activity, "Title": title, "Shortened Title": shortened_title})
                     entry_details['fields']['title']['en-US'] = shortened_title
                     entry_details['fields']['lockTitle'] = {}
-                    entry_details['fields']['lockTitle']['en-US'] = True  # Initialize to False
+                    entry_details['fields']['lockTitle']['en-US'] = False  # Initialize to False
                     update_response = requests.put(update_url, headers=update_headers, json=entry_details)
                 elif(entry_details['fields']['lockTitle']['en-US'] == True):
-                    print("SKIP")
-                    continue
+                    ### These are for testing
+                    new_slug = generate_slug(title)
+                    entry_details['fields']['slug'] = {'en-US': new_slug}
+                    print(f"Generated slug: {new_slug}")
+                    update_response = requests.put(update_url, headers=update_headers, json=entry_details)
+                    # print("SKIP")
+                    # continue
                 else:
                     entry_details['fields']['lockTitle']['en-US'] = True  # Set 'Lock Title' to Locked (True)
+                    new_slug = generate_slug(title)
+                    entry_details['fields']['slug'] = {'en-US': new_slug}
+                    print(f"Generated slug: {new_slug}")
                     shortened_title = shorten_title(title, barrier)
                     print(f"""{title} --> \n{shortened_title}""")
                     data.append({"Activity": activity, "Title": title, "Shortened Title": shortened_title})

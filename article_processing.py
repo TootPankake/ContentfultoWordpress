@@ -38,8 +38,8 @@ def call_openai_with_backoff(prompt, max_retries=5, initial_delay=1):
             print(f"An error occurred: {e}")
             raise e
 
-def generate_article_links(title, article, slug_list):
-    html_output = RENDERER.render(article)
+def generate_article_links(title, rendered_content, slug_list):
+    html_output = RENDERER.render(rendered_content)
     
     prompt = f"""
     Slugs: {slug_list}

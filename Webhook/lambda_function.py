@@ -1,19 +1,3 @@
-import json
-import contentful
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import SPACE_ID, ACCESS_TOKEN, URL, RENDERER, ENVIRONMENT
-from article_processing import generate_article_links
-from contentful_data import fetch_contentful_data, render_activities, render_categories
-from wordpress_operations import (fetch_all_pages_concurrently, fetch_all_posts_concurrently, 
-                                  fetch_all_tags, fetch_all_categories, create_tag, create_post)
-
-# Initialize Contentful API Client
-try:
-    client = contentful.Client(SPACE_ID, ACCESS_TOKEN, environment=ENVIRONMENT, max_include_resolution_depth=1)
-    print("Successfully connected to Contentful client.\n")
-except contentful.errors.NotFoundError as e:
-    print(f"Error: {e}")
-    
 post_event = {
     "metadata": {
       "tags": [],
@@ -1374,88 +1358,140 @@ page_event = {
       "updatedAt": "2025-01-02T21:54:40.395Z"
     }
   }
-
-print("Fetching contentful entries")
-all_categories, all_activities, all_articles = [], [], []
-contentful_fetching_limit = 25
-skip_categories = skip_activities = 0
-all_categories, all_activities = fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activities, client)
-
-activity_slugs = []
-render_activities(all_activities, activity_slugs)
-json_slug_data = json.dumps(activity_slugs)
-
-
-# Gather variables from webhookevent for either a page or post
 event = page_event
-event_title = event['fields']['title']['en-US']
-event_slug = event['fields']['slug']['en-US']
-event_entry_id = event['sys']['id']
-event_content_type = event.get('sys', {}).get('contentType', {}).get('sys', {}).get('id', None)
 
-if event_content_type == "brim":
-    event_content_type = "page"
-    print("Fetching wordpress categories")
-    existing_wordpress_categories = []
-    fetch_all_categories(existing_wordpress_categories)
-    render_categories(all_categories, existing_wordpress_categories)
-    print(existing_wordpress_categories)
-else:
-    event_content_type = "post"
-    event_description = event['fields']['content']['en-US']['content']
-    rendered_description = "".join(RENDERER.render(node) for node in event_description)
+
+import json
+import contentful
+from config import SPACE_ID, ACCESS_TOKEN, RENDERER, ENVIRONMENT
+from article_processing import generate_article_links
+from contentful_data import fetch_contentful_data, render_activities
+from wordpress_operations import (fetch_all_pages_concurrently, fetch_all_posts_concurrently, 
+                                  fetch_all_tags, fetch_all_categories, 
+                                  create_tag, create_category, create_post, create_page)
+
+
+def lambda_handler(event, context):
+    # Initialize Contentful API Client
+    try:
+        client = contentful.Client(SPACE_ID, ACCESS_TOKEN, environment=ENVIRONMENT, max_include_resolution_depth=1)
+        print("Successfully connected to Contentful client.\n")
+    except contentful.errors.NotFoundError as e:
+        print(f"Error: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': 'Failed to initialize Contentful client'})
+        }
     
-    print("Fetching wordpress tags")
-    existing_wordpress_tags = []
-    fetch_all_tags(existing_wordpress_tags)
-    matching_entry = next((entry for entry in existing_wordpress_tags if entry['description'] == '0451'), None) # checking to see if barrier article is already on wordpress
-    if not matching_entry:
-        barrier_article_tag_id = create_tag("Barrier Article", "barrier-articles", '0451', existing_wordpress_tags)
-    else:
-        barrier_article_tag_id = matching_entry['id']
-  
+    print("Fetching contentful entries")
+    all_categories, all_activities = [], []
+    contentful_fetching_limit = 25
+    skip_categories = skip_activities = 0
+    all_categories, all_activities = fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activities, client)
+
+    activity_slugs = []
+    render_activities(all_activities, activity_slugs)
+    json_slug_data = json.dumps(activity_slugs)
+
+    event_title = event['fields']['title']['en-US']
+    event_slug = event['fields']['slug']['en-US']
+    event_entry_id = event['sys']['id']
+    event_content_type = event.get('sys', {}).get('contentType', {}).get('sys', {}).get('id', None)
+
+    if event_content_type == "brim":
+        event_content_type = "page"
+        event_linked_category_ids = [item['sys']['id'] for item in event['fields']['categories']['en-US']]
         
-existing_wordpress_pages, existing_wordpress_posts = [], []
-all_pages = fetch_all_pages_concurrently()
-all_posts = fetch_all_posts_concurrently() 
-
-print("Fetching wordpress pages")
-for item in all_pages:
-    if '_metadata_id' in item['meta']:
-        title = item['title']['rendered']
-        slug = item['slug']
-        post_id = item['id']
-        entry_id = item['meta']['_metadata_id']
-        description = item['content']['rendered']
-        if entry_id == '':
-            continue
-        existing_wordpress_pages.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'page_id': post_id})
-
-print("Fetching wordpress posts\n")
-for item in all_posts:
-    if '_metadata_id' in item['meta']:
-        title = item['title']['rendered']
-        slug = item['slug']
-        post_id = item['id']
-        entry_id = item['meta']['_metadata_id']
-        description = item['content']['rendered']
-        if entry_id == '':
-            continue
-        existing_wordpress_posts.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'page_id': post_id})
-
-
-if event_content_type == 'post':
-    updated_article = generate_article_links(event_title, rendered_description, json_slug_data)
-    updated_article = updated_article.replace("[ARTICLE END]", "") 
+        print("Fetching wordpress categories")
+        existing_wordpress_categories = []
+        
+        fetch_all_categories(all_categories, existing_wordpress_categories)
+        activity_linked_categories_ids = []
+        for item in existing_wordpress_categories:
+            if isinstance(item, dict) and 'metadata_id' in item: # some categories like Uncategorized have not metadata_id
+                if item['metadata_id'] in event_linked_category_ids:
+                    activity_linked_categories_ids.append(item['category_id'])
+                    create_category(item, existing_wordpress_categories)
+                    
+    else:
+        event_content_type = "post"
+        event_description = event['fields']['content']['en-US']['content']
+        rendered_description = "".join(RENDERER.render(node) for node in event_description)
+        
+        print("Fetching wordpress tags")
+        existing_wordpress_tags = []
+        fetch_all_tags(existing_wordpress_tags)
+        matching_entry = next((entry for entry in existing_wordpress_tags if entry['description'] == '0451'), None) # checking to see if barrier article is already on wordpress
+        if not matching_entry:
+            barrier_article_tag_id = create_tag("Barrier Article", "barrier-articles", '0451', existing_wordpress_tags)
+        else:
+            barrier_article_tag_id = matching_entry['id']
     
-    tag_entry_id = event['fields']['activities']['en-US'][0]['sys']['id']
-    event_linked_activity = client.entry(tag_entry_id)
-    tag_title = event_linked_activity.fields().get('title', 'No title found')
-    tag_slug = event_linked_activity.fields().get('slug', 'No title found')
+            
+    existing_wordpress_pages, existing_wordpress_posts = [], []
+    all_pages = fetch_all_pages_concurrently()
+    all_posts = fetch_all_posts_concurrently() 
     
-    activity_tag_id = create_tag(tag_title, tag_slug, tag_entry_id, existing_wordpress_tags)
-    create_post(event_title, event_slug, event_entry_id, updated_article, existing_wordpress_posts, activity_tag_id, barrier_article_tag_id)
+    print("Fetching wordpress pages")
+    for item in all_pages:
+        if '_metadata_id' in item['meta']:
+            title = item['title']['rendered']
+            slug = item['slug']
+            post_id = item['id']
+            entry_id = item['meta']['_metadata_id']
+            description = item['content']['rendered']
+            if entry_id == '':
+                continue
+            existing_wordpress_pages.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'page_id': post_id})
 
-if event_content_type == 'page':
-  print("page")
+    print("Fetching wordpress posts\n")
+    for item in all_posts:
+        if '_metadata_id' in item['meta']:
+            title = item['title']['rendered']
+            slug = item['slug']
+            post_id = item['id']
+            entry_id = item['meta']['_metadata_id']
+            description = item['content']['rendered']
+            if entry_id == '':
+                continue
+            existing_wordpress_posts.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'page_id': post_id})
+
+
+    if event_content_type == 'post':
+        updated_article = generate_article_links(event_title, rendered_description, json_slug_data)
+        updated_article = updated_article.replace("[ARTICLE END]", "") 
+        
+        tag_entry_id = event['fields']['activities']['en-US'][0]['sys']['id']
+        event_linked_activity = client.entry(tag_entry_id)
+        tag_title = event_linked_activity.fields().get('title', 'No title found')
+        tag_slug = event_linked_activity.fields().get('slug', 'No title found')
+        
+        activity_tag_id = create_tag(tag_title, tag_slug, tag_entry_id, existing_wordpress_tags)
+        completed_id = create_post(event_title, event_slug, event_entry_id, updated_article, existing_wordpress_posts, activity_tag_id, barrier_article_tag_id)
+
+    if event_content_type == 'page':
+        event_title = event['fields']['title']['en-US']
+        event_slug = event['fields']['slug']['en-US']
+        event_entry_id = event['sys']['id']
+        event_description = event['fields']['descriptionFull']['en-US']['content']
+        
+        hero_image_id = event['fields']['heroImage']['en-US']['sys']['id']
+        hero_image_url = None
+
+        if hero_image_id:
+            # Fetch the asset using the ID
+            asset = client.asset(hero_image_id)
+            
+            if asset and asset.fields().get('file'):
+                hero_image_url = f"https:{asset.fields().get('file').get('url')}"
+            else:
+                print("Asset or file URL not found.")
+
+        completed_id = create_page(event_title, event_slug, event_description, event_entry_id, hero_image_url, activity_linked_categories_ids, existing_wordpress_pages)
+
+
+    return {
+        'statusCode': 200,
+        'Completed ID': completed_id
+    }
 

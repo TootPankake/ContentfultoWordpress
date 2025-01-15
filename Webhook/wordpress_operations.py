@@ -1,7 +1,7 @@
+import time
 import requests
 from config import URL, AUTH
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 # Page (activity) operations
 def fetch_page(page):
     try:
@@ -46,18 +46,26 @@ def fetch_all_pages_concurrently():
 
 # Post (article) operations
 def fetch_post(page):
-    try:
-        response = requests.get(
-            f"{URL}wp-json/wp/v2/posts",
-            params={'per_page': 100, 'page': page},
-            auth=AUTH,
-            timeout=30
-        )
-        response.raise_for_status()
-        return response.json(), response.headers
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching page {page}: {e}")
-        return None, None
+    retry_delay = 5
+    max_delay = 60
+    while True:
+        try:
+            response = requests.get(
+                f"{URL}wp-json/wp/v2/posts",
+                params={'per_page': 100, 'page': page},
+                auth=AUTH,
+                timeout=30
+            )
+            if response.status_code == 429:
+                print(f"Rate limited on page {page}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_delay)  # Exponential backoff
+                continue
+            response.raise_for_status()
+            return response.json(), response.headers
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching page {page}: {e}")
+            return None, None
 
 def get_total_posts():
     response = requests.get(
@@ -105,7 +113,7 @@ def fetch_all_tags(existing_tag_metadata):
         
         page += 1 
         
-def fetch_all_categories(existing_wordpress_categories):
+def fetch_all_categories(all_categories, existing_wordpress_categories):
     page = 1
     while True:
         response = requests.get(f"{URL}/wp-json/wp/v2/categories", params={'per_page': 20, 'page': page}, auth=AUTH, timeout = 30)
@@ -116,21 +124,31 @@ def fetch_all_categories(existing_wordpress_categories):
 
         for category in categories:
             if 'metadata_id' in category:
-                existing_wordpress_categories.append({'category_id': category['id'], 'metadata_id': category['metadata_id']})
+                for entry in all_categories:
+                    category_contentful_entry_id = entry.sys.get('id')
+                    if category_contentful_entry_id == category['metadata_id']:
+                        category_title = entry.fields().get('title')
+                        category_slug = entry.fields().get('slug')  
+                        category_contentful_entry_id = entry.sys.get('id')
+                        #category_type = entry.fields().get('category_type')
+                        existing_wordpress_categories.append({'category_id': category['id'], 'metadata_id': category['metadata_id'], "category_title": category_title, 'category_slug': category_slug})
             else:
                 print(f"Category ID: {category['id']} has no Metadata ID.")
         
         page += 1
         
-def create_category(title, description, slug, metadata_id, existing_category_metadata):
+def create_category(category, existing_category_metadata):
+    title = category['category_title']
+    slug = category['category_slug']
+    metadata_id = category['metadata_id']
+    
     for item in existing_category_metadata:
         if metadata_id == item['metadata_id']:
-            category_id = item['id']
+            category_id = item['category_id']
             category_data = {
                 'name': title,
                 'slug': slug,
                 'metadata_id': metadata_id,
-                'description': description
             }
             existing_category_metadata.append(metadata_id)
             response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=AUTH)
@@ -145,7 +163,6 @@ def create_category(title, description, slug, metadata_id, existing_category_met
         'name': title,
         'slug': slug,
         'metadata_id': metadata_id,
-        'description': description
     }
     response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=AUTH)
     if response.status_code == 201:
@@ -191,30 +208,28 @@ def create_tag(title, slug, entry_id, existing_wordpress_tags):
         print(response.json())
     return
 
-def create_page(title, description, slug, image_url, metadata_id, category_ids, existing_page_metadata):
-    for item in existing_page_metadata:
-        if metadata_id == item['metadata_id']:
-            page_id = item['id']
+def create_page(title, slug, description, metadata_id, image_url, category_ids, existing_wordpress_pages):
+    for item in existing_wordpress_pages:
+        if metadata_id == item['entry_id']:
+            page_id = item['page_id']
             
-            if (item['content'] != description or item['categories'] != category_ids):
-                # Update the page content
-                page_data = {
-                    'title': title,
-                    'content': description,
-                    'slug': slug,
-                    'categories': category_ids,
-                }
-                response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
-                if response.status_code in [200,201]:
-                    print(f"updated --> {title}")
-                    set_fifu_image(page_id, image_url)
-                    return page_id
-                else:
-                    print(f"Failed to update page: {response.status_code}")
-                    print(title)
-                    print(response.json())  # Print the response for debugging
-                return 
-            return page_id
+            # Update the page content
+            page_data = {
+                'title': title,
+                'content': description,
+                'slug': slug,
+                'categories': category_ids,
+            }
+            response = requests.post(f"{URL}wp-json/wp/v2/pages/{page_id}".format(page_id=page_id), json=page_data, auth=AUTH)
+            if response.status_code in [200,201]:
+                print(f"page updated --> {title}")
+                set_fifu_image(page_id, image_url)
+                return page_id
+            else:
+                print(f"Failed to update page: {response.status_code}")
+                print(title)
+                print(response.json())  # Print the response for debugging
+            return 
     
     # If no matching metadata ID found, create a new page
     page_data = {
@@ -228,7 +243,7 @@ def create_page(title, description, slug, image_url, metadata_id, category_ids, 
     response = requests.post(f"{URL}wp-json/wp/v2/pages", json=page_data, auth=AUTH)
 
     if response.status_code == 201:
-        print(f"created --> {title}")
+        print(f"page created --> {title}")
         page_id = response.json()['id']
         set_fifu_image(page_id, image_url)
         # Update the metadata
