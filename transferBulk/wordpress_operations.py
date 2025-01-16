@@ -110,7 +110,6 @@ def fetch_all_tags(existing_tag_metadata):
             existing_tag_metadata.append({'id': tag['id'], 'description': description})
             if not description:
                 print(f"Tag ID: {tag['id']} has no description.")
-        
         page += 1 
         
 def fetch_all_categories(all_categories, existing_wordpress_categories):
@@ -121,7 +120,7 @@ def fetch_all_categories(all_categories, existing_wordpress_categories):
         
         if not categories:
             break
-
+        
         for category in categories:
             if 'metadata_id' in category:
                 for entry in all_categories:
@@ -129,19 +128,13 @@ def fetch_all_categories(all_categories, existing_wordpress_categories):
                     if category_contentful_entry_id == category['metadata_id']:
                         category_title = entry.fields().get('title')
                         category_slug = entry.fields().get('slug')  
-                        category_contentful_entry_id = entry.sys.get('id')
                         #category_type = entry.fields().get('category_type')
-                        existing_wordpress_categories.append({'category_id': category['id'], 'metadata_id': category['metadata_id'], "category_title": category_title, 'category_slug': category_slug})
+                        existing_wordpress_categories.append({'category_id': category['id'], 'metadata_id': category['metadata_id'], 
+                                                              "category_title": category_title, 'category_slug': category_slug})
             else:
                 print(f"Category ID: {category['id']} has no Metadata ID.")
-        
         page += 1
-        
-def create_category(category, existing_category_metadata):
-    title = category['category_title']
-    slug = category['category_slug']
-    metadata_id = category['metadata_id']
-    
+def create_category(title, description, slug, metadata_id, existing_category_metadata):
     for item in existing_category_metadata:
         if metadata_id == item['metadata_id']:
             category_id = item['category_id']
@@ -149,11 +142,12 @@ def create_category(category, existing_category_metadata):
                 'name': title,
                 'slug': slug,
                 'metadata_id': metadata_id,
+                'description': description
             }
             existing_category_metadata.append(metadata_id)
             response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=AUTH)
             if response.status_code in [200,201]:
-                print(f"category updated --> {title}")
+                print(f"updated --> {title}")
                 return category_id
             else:
                 print(f"Failed to update {title}: {response.status_code}")
@@ -163,16 +157,54 @@ def create_category(category, existing_category_metadata):
         'name': title,
         'slug': slug,
         'metadata_id': metadata_id,
+        'description': description
     }
     response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=AUTH)
     if response.status_code == 201:
         category_id = response.json().get('id')
-        print(f'category created --> {title}')
+        print(f'created --> {title}')
         return category_id
     else:
         print(f'Failed to create {title}: {response.status_code}')
         print(response.json())
-    return 
+    return  
+
+# def create_category(category, existing_category_metadata):
+#     title = category['category_title']
+#     slug = category['category_slug']
+#     metadata_id = category['metadata_id']
+    
+#     for item in existing_category_metadata:
+#         if metadata_id == item['metadata_id']:
+#             category_id = item['category_id']
+#             category_data = {
+#                 'name': title,
+#                 'slug': slug,
+#                 'metadata_id': metadata_id,
+#             }
+#             existing_category_metadata.append(metadata_id)
+#             response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=AUTH)
+#             if response.status_code in [200,201]:
+#                 print(f"category updated --> {title}")
+#                 return category_id
+#             else:
+#                 print(f"Failed to update {title}: {response.status_code}")
+#                 print(response.json())  # Print the response for debugging
+#             return 
+#     category_data = {
+#         'name': title,
+#         'slug': slug,
+#         'metadata_id': metadata_id,
+#     }
+#     response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=AUTH)
+#     if response.status_code == 201:
+#         category_id = response.json().get('id')
+#         print(f'category created --> {title}')
+#         return category_id
+#     else:
+#         print(f'Failed to create {title}: {response.status_code}')
+#         print(response.json())
+#     return 
 
 def create_tag(title, slug, entry_id, existing_wordpress_tags):
     for item in existing_wordpress_tags:

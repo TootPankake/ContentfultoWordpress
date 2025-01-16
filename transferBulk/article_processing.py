@@ -39,7 +39,6 @@ def call_openai_with_backoff(prompt, max_retries=5, initial_delay=1):
             raise e
 
 def generate_article_links(title, rendered_content, slug_list):
-    html_output = RENDERER.render(rendered_content)
     
     prompt = f"""
     Slugs: {slug_list}
@@ -50,7 +49,7 @@ def generate_article_links(title, rendered_content, slug_list):
     Optimize for html output, only output the updated article, nothing else.
     
     [ARTICLE START]
-    {html_output} 
+    {rendered_content} 
     [ARTICLE END]
     """
 
@@ -63,39 +62,4 @@ def generate_article_links(title, rendered_content, slug_list):
     
     print(f"Article link completed: {title}")
     return content
-
-def process_article(entry, gptSweep, json_slug_data, existing_post_metadata):
-    slug = entry.fields().get('slug')  
-    title = entry.fields().get('title')
-    content = entry.fields().get('content')
-    id = entry.sys.get('id')
-    
-    # activites and barriers are both nested, so they must be looped through
-    activities = entry.fields().get('activities', [])
-    barriers = entry.fields().get('barriers', [])
-    activities_list = [activity.fields().get('title') for activity in activities]
-    barriers_list = [barrier.fields().get('title') for barrier in barriers]
-    
-    activity = activities_list[0] if activities_list else ''
-    barrier = barriers_list[0] if barriers_list else ''
-    if gptSweep == 'Y':
-        ai_updated_article = generate_article_links(title, content, json_slug_data)  # Add hyperlinks to the article
-    else:
-        ai_updated_article = RENDERER.render(content)
-        for i in existing_post_metadata:
-            if id == i['metadata_id']:
-                response = requests.get(f"{URL}/wp-json/wp/v2/posts/{i['id']}")
-                temp = response.json()
-                temp = temp['content']['rendered']
-                ai_updated_article = temp
-                break
-    return {
-        'title': title,
-        'id': id,
-        'slug': slug,
-        'activity': activity,
-        'barrier': barrier,
-        'content': ai_updated_article,
-        'has_activities_and_barriers': bool(activities_list and barriers_list)
-    }
 

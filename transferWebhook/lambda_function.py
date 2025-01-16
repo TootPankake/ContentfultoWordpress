@@ -1360,7 +1360,6 @@ page_event = {
   }
 event = page_event
 
-
 import json
 import contentful
 from config import SPACE_ID, ACCESS_TOKEN, RENDERER, ENVIRONMENT
