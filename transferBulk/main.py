@@ -10,7 +10,7 @@ from article_processing import generate_article_links
 from contentful_data import fetch_contentful_data, render_activities, render_articles, render_categories
 from wordpress_operations import (fetch_all_pages_concurrently, fetch_all_posts_concurrently, 
                                   fetch_all_tags, fetch_all_categories, 
-                                  create_tag, create_posts_concurrently, create_page)
+                                  create_tag, create_page, create_posts_concurrently)
 
 # Prompt user on execution parameters
 refresh_all_articles = input("Do you need to refresh EVERY article or just the ones updated since last access? (y/n): ").strip().upper()

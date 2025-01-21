@@ -1,6 +1,5 @@
 import openai
 import time
-import requests
 from config import URL, OPENAI_API_TOKEN, MODEL, RENDERER
 
 openai.api_key = OPENAI_API_TOKEN
@@ -60,6 +59,6 @@ def generate_article_links(title, rendered_content, slug_list):
     content = content.replace('[ARTICLE START]\n', '').replace('\n[ARTICLE END]', '')
     content = content.replace('```html\n', '').replace('\n```', '')
     
-    print(f"Article link completed: {title}")
+    print(f"article hyperlinks generated --> {title}")
     return content
 
