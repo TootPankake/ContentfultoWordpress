@@ -6,7 +6,7 @@ from wordpress_operations import create_category
 def fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activities, skip_articles, date_threshold_articles):
     try: # Initialize Contentful API Client
         client = contentful.Client(SPACE_ID, ACCESS_TOKEN, environment=ENVIRONMENT, max_include_resolution_depth=1)
-        print("Fetching contentful client entries")
+        print("\nFetching contentful client entries")
     except contentful.errors.NotFoundError as e:
         print(f"Error: {e}")
         
@@ -55,26 +55,11 @@ def fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activ
 
 def render_activities(all_activities):
     activity_slugs = []
-    processed_activities = []
     for entry in all_activities:
-        title = entry.fields().get('title')
         slug = entry.fields().get('slug')  
-        entry_id = entry.sys.get('id')
-
-        linked_categories = entry.fields().get('categories', [])
-        categories_id_list = [category.sys.get('id') for category in linked_categories]
-
-        hero_image = entry.fields().get('hero_image')
-        if hero_image:
-            image_url = f"https:{hero_image.fields().get('file').get('url')}"
-
-        description_full = entry.fields().get('description_full', [])
-        content = RENDERER.render(description_full)
-                
         activity_slugs.append(slug)
-        processed_activities.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'linked_categories': categories_id_list, 
-                                'hero_image': image_url, 'content': content})
-    return processed_activities, activity_slugs
+
+    return activity_slugs
 
 def render_articles(all_articles):
     processed_articles = []
@@ -98,14 +83,18 @@ def render_articles(all_articles):
                                    'barrier': barrier, 'content': content})
     return processed_articles
 
-def render_categories(all_categories, all_category_ids, existing_wordpress_categories):
+def render_categories(all_categories, existing_wordpress_categories):
+    all_category_ids = []
+
     for entry in all_categories:
         category_slug = entry.fields().get('slug')  
         category_title = entry.fields().get('title')
-        category_description = entry.fields().get('description') # change to whatever we choose as the name for description
+        category_description = entry.fields().get('description')
         category_description = ""
         category_type = entry.fields().get('category_type')
         category_id = entry.sys.get('id')
         if category_type == 'Activity':
             id = create_category(category_title, category_description, category_slug, category_id, existing_wordpress_categories)
             all_category_ids.append({'id': id, 'meta_data_id': category_id}) 
+    
+    return all_category_ids
