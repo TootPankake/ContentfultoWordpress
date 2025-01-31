@@ -64,21 +64,22 @@ def render_activities(all_activities):
 def render_articles(all_articles):
     processed_articles = []
     for entry in all_articles:
-        slug = entry.fields().get('slug')  
-        title = entry.fields().get('title')
+        entry_fields = entry.fields()
         entry_id = entry.sys.get('id')
+
+        slug = entry_fields.get('slug')  
+        title = entry_fields.get('title')
+        content = entry_fields.get('content')
+        content = RENDERER.render(content)
         
         # activites and barriers are both nested, so they must be looped through
-        activities = entry.fields().get('activities', [])
-        barriers = entry.fields().get('barriers', [])
+        activities = entry_fields.get('activities', [])
+        barriers = entry_fields.get('barriers', [])
         activities_list = [activity.fields().get('title') for activity in activities]
         barriers_list = [barrier.fields().get('title') for barrier in barriers]
         activity = activities_list[0] if activities_list else ''
         barrier = barriers_list[0] if barriers_list else ''
 
-        content = entry.fields().get('content')
-        content = RENDERER.render(content)
-        
         processed_articles.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'activity': activity, 
                                    'barrier': barrier, 'content': content})
     return processed_articles
@@ -87,14 +88,14 @@ def render_categories(all_categories, existing_wordpress_categories):
     all_category_ids = []
 
     for entry in all_categories:
-        category_slug = entry.fields().get('slug')  
-        category_title = entry.fields().get('title')
-        category_description = entry.fields().get('description')
-        category_description = ""
-        category_type = entry.fields().get('category_type')
         category_id = entry.sys.get('id')
+        entry_fields = entry.fields()
+
+        category_slug = entry_fields.get('slug')  
+        category_title = entry_fields.get('title')
+        category_type = entry_fields.get('category_type')
         if category_type == 'Activity':
-            id = create_category(category_title, category_description, category_slug, category_id, existing_wordpress_categories)
+            id = create_category(category_title, category_slug, category_id, existing_wordpress_categories)
             all_category_ids.append({'id': id, 'meta_data_id': category_id}) 
     
     return all_category_ids

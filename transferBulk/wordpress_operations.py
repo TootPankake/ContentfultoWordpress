@@ -140,7 +140,7 @@ def fetch_all_categories(all_categories):
     return existing_wordpress_categories
 
 
-def create_category(title, description, slug, metadata_id, existing_category_metadata):
+def create_category(title, slug, metadata_id, existing_category_metadata):
     for item in existing_category_metadata:
         if metadata_id == item['metadata_id']:
             category_id = item['category_id']
@@ -148,7 +148,6 @@ def create_category(title, description, slug, metadata_id, existing_category_met
                 'name': title,
                 'slug': slug,
                 'metadata_id': metadata_id,
-                'description': description
             }
             existing_category_metadata.append(metadata_id)
             response = requests.post(f"{URL}/wp-json/wp/v2/categories/{category_id}", json=category_data, auth=AUTH)
@@ -163,7 +162,6 @@ def create_category(title, description, slug, metadata_id, existing_category_met
         'name': title,
         'slug': slug,
         'metadata_id': metadata_id,
-        'description': description
     }
     response = requests.post(f"{URL}/wp-json/wp/v2/categories", json=category_data, auth=AUTH)
     if response.status_code == 201:

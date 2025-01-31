@@ -116,40 +116,49 @@ def create_page_and_tag(title, slug, content, entry_id, image_url, category_list
 
 # activities derived from their links to list of articles
 activity_types = {item['activity'] for item in processed_articles}    
+activity_dict = {entry.fields().get('title'): entry for entry in all_activities}
+
 page_ids = {}
 tag_ids = {}
 
 print("\nActivities: ")
 for activity in sorted(activity_types):
-    for entry in all_activities:
-        title = entry.fields().get('title')
-        slug = entry.fields().get('slug')  
-        entry_id = entry.sys.get('id')
+    entry = activity_dict.get(activity)
+    if not entry:
+        continue
+    entry_fields = entry.fields()
+    title = entry_fields.get('title')
+    slug = entry_fields.get('slug')  
+    entry_id = entry.sys.get('id')
 
-        description_full = entry.fields().get('description_full', [])
-        if description_full:
-            content = RENDERER.render(description_full)
-            
-        hero_image = entry.fields().get('hero_image')
-        if hero_image:
-            image_url = f"https:{hero_image.fields().get('file').get('url')}"
+    description_full = entry_fields.get('description_full', [])
+    if description_full:
+        content = RENDERER.render(description_full)
+        
+    hero_image = entry_fields.get('hero_image')
+    if hero_image:
+        image_url = f"https:{hero_image.fields().get('file').get('url')}"
 
-        if title == activity:
-            linked_categories = entry.fields().get('categories', [])
-            categories_id_list = [category.sys.get('id') for category in linked_categories]
-            category_list = []
-                        
-            category_id_dict = {item['meta_data_id']: item['id'] for item in all_category_ids} # dictionary to look through category id list
-            category_list = [category_id_dict[j] for j in categories_id_list if j in category_id_dict]
-
-            # Call the parallelized function
-            parent_page_id, tag_id = create_page_and_tag(
-                title, slug, content, entry_id, image_url, category_list, existing_wordpress_pages, existing_wordpress_tags
-            )
-            
-            page_ids[activity] = parent_page_id
-            tag_ids[activity] = tag_id
-            
+    if title == activity:
+        linked_categories = entry_fields.get('categories', [])
+        categories_id_list = [category.sys.get('id') for category in linked_categories]
+        category_list = []
+                    
+        category_id_dict = {item['meta_data_id']: item['id'] for item in all_category_ids} # dictionary to look through category id list
+        category_list = []
+        for category in linked_categories:
+            category_id = category.sys.get('id')
+            if category_id in category_id_dict:
+                category_list.append(category_id_dict[category_id])
+                
+        # Call the parallelized function
+        parent_page_id, tag_id = create_page_and_tag(
+            title, slug, content, entry_id, image_url, category_list, existing_wordpress_pages, existing_wordpress_tags
+        )
+        
+        page_ids[activity] = parent_page_id
+        tag_ids[activity] = tag_id
+        
 print("\nArticles: ")
 with ThreadPoolExecutor(max_workers=5) as executor:
     futures = {executor.submit(create_posts_concurrently, article, existing_wordpress_posts, barrier_article_tag_id, tag_ids): article for article in processed_articles}

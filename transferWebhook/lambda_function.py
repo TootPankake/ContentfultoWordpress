@@ -1360,7 +1360,10 @@ page_event = {
   }
 event = page_event
 
+
+import boto3
 import json
+import time
 import contentful
 from config import SPACE_ID, ACCESS_TOKEN, RENDERER, ENVIRONMENT
 from article_processing import generate_article_links
@@ -1368,9 +1371,17 @@ from contentful_data import fetch_contentful_data, render_activities
 from wordpress_operations import (fetch_all_pages_concurrently, fetch_all_posts_concurrently, 
                                   fetch_all_tags, fetch_all_categories, 
                                   create_tag, create_category, create_post, create_page)
-
-
 def lambda_handler(event, context):
+    # Process each record from SQS
+    for record in event['Records']:
+        body = json.loads(record['body'])
+        completed_event = process_contentful_data(body)
+    return {
+        'statusCode': 200,
+        'body': completed_event
+    }
+
+def process_contentful_data(event):    
     # Initialize Contentful API Client
     try:
         client = contentful.Client(SPACE_ID, ACCESS_TOKEN, environment=ENVIRONMENT, max_include_resolution_depth=1)
@@ -1383,7 +1394,7 @@ def lambda_handler(event, context):
         }
     
     print("Fetching contentful entries")
-    all_categories, all_activities = [], []
+    all_categories, all_activities, all_articles = [], [], []
     contentful_fetching_limit = 25
     skip_categories = skip_activities = 0
     all_categories, all_activities = fetch_contentful_data(contentful_fetching_limit, skip_categories, skip_activities, client)
@@ -1430,7 +1441,7 @@ def lambda_handler(event, context):
     existing_wordpress_pages, existing_wordpress_posts = [], []
     all_pages = fetch_all_pages_concurrently()
     all_posts = fetch_all_posts_concurrently() 
-    
+
     print("Fetching wordpress pages")
     for item in all_pages:
         if '_metadata_id' in item['meta']:
@@ -1442,7 +1453,6 @@ def lambda_handler(event, context):
             if entry_id == '':
                 continue
             existing_wordpress_pages.append({'title': title, 'slug': slug, 'entry_id': entry_id, 'page_id': post_id})
-
     print("Fetching wordpress posts\n")
     for item in all_posts:
         if '_metadata_id' in item['meta']:
@@ -1491,6 +1501,6 @@ def lambda_handler(event, context):
 
     return {
         'statusCode': 200,
-        'Completed ID': completed_id
+        'body': completed_id
     }
 
