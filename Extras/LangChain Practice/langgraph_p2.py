@@ -53,7 +53,6 @@ memory_printing(state)
 state["messages"] = [{"role": "user", "content": "What is the capital of Germany?"}]
 memory_printing(state)
 
-
 # Third Response
 state["messages"] = [{"role": "user", "content": "What country did you just talk about?"}]
 memory_printing(state)
