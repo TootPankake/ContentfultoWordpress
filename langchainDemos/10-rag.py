@@ -1,4 +1,5 @@
-# Retrieval Augmented Generation
+# Retrieval Augmented Generation, might not be entirely relevant to our implementation
+
 import os
 import getpass
 import bs4

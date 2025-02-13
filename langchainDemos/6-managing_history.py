@@ -25,7 +25,7 @@ prompt_template = ChatPromptTemplate.from_messages(
 )
 
 trimmer = trim_messages(
-    max_tokens=int(input("Max tokens for history of conversation, try values like 60 or 120")),
+    max_tokens=int(input("Max tokens for history of conversation, try values like 60 or 120: ")),
     strategy="last",
     token_counter=model,
     include_system=True,
