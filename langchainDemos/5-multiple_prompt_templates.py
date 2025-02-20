@@ -6,9 +6,9 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from typing_extensions import Annotated, TypedDict
 from typing import Sequence
-
 from dotenv import load_dotenv
 load_dotenv()
+
 model = init_chat_model("gpt-4o-mini", model_provider="openai")
 
 class State(TypedDict):

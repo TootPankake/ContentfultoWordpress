@@ -1,8 +1,8 @@
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, BaseMessage, SystemMessage, trim_messages, AIMessage
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, MessagesState, StateGraph, add_messages
+from langchain_core.messages import HumanMessage, BaseMessage, SystemMessage, trim_messages, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.graph import START, MessagesState, StateGraph, add_messages
 from typing_extensions import Annotated, TypedDict
 from typing import Sequence
 from dotenv import load_dotenv
@@ -63,7 +63,7 @@ workflow.add_node("model", call_model)
 memory = MemorySaver()
 application = workflow.compile(checkpointer=memory)
 
-config = {"configurable": {"thread_id": "0451"}}
+config = {"configurable": {"thread_id": "6544329ab3a654370e4f18b0"}}
 alternate_config = {"configurable": {"thread_id": "0452"}}
 
 language = "English"
